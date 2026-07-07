@@ -88,7 +88,7 @@ export default function ProfilePage() {
   const [bioValue, setBioValue] = useState('')
   const [savingBio, setSavingBio] = useState(false)
   const [notFound, setNotFound] = useState(false)
-  const [coverLoaded, setCoverLoaded] = useState(false)
+  
 
   const isOwnProfile = currentUserId === id
 

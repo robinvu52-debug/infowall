@@ -354,7 +354,7 @@ export default function AdminPage() {
   // Overview stats
   const pinsSet = profiles.filter(p => p.kiosk_pin).length
   const todayAtt = attendance.length
-  const weekShifts = schedules.length
+  const _weekShifts = schedules.length
   const mustReadPosts = allPosts.filter(p => p.must_read).length
   const roleCount = ['admin', 'hr', 'manager', 'employee'].map(r => ({ role: r, count: profiles.filter(p => p.role === r).length }))
 
