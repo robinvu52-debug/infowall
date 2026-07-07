@@ -2,508 +2,533 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
-interface NavbarProps {
-  fullName: string | null
-  role: string
-}
+interface NavbarProps { fullName: string | null; role: string }
 
 function getInitials(name: string | null): string {
   if (!name) return '?'
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
+  return name.split(' ').filter(Boolean).slice(0, 2).map(n => n[0]).join('').toUpperCase()
 }
 
 const NAV_LINKS = (role: string) => [
-  { path: '/dashboard',   label: 'Dashboard',   icon: '🏠', show: true },
-  { path: '/feed',        label: 'News Feed',   icon: '📰', show: true },
-  { path: '/create-post', label: 'Create post', icon: '✏️', show: ['hr', 'manager', 'admin'].includes(role) },
-  { path: '/admin',       label: 'Admin',       icon: '⚙️', show: role === 'admin' },
+  { path: '/dashboard',   label: 'Dashboard',   icon: '⊞',  show: true },
+  { path: '/feed',        label: 'News Feed',   icon: '◎',  show: true },
+  { path: '/messages',    label: 'Messages',    icon: '✉',  show: true },
+  { path: '/create-post', label: 'Create Post', icon: '✦',  show: ['hr', 'manager', 'admin'].includes(role) },
+  { path: '/admin',       label: 'Admin',       icon: '⚙',  show: role === 'admin' },
 ]
 
-function Navbar({ fullName, role }: NavbarProps) {
+export default function Navbar({ fullName, role }: NavbarProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [scrolled, setScrolled] = useState(false)
+
+  async function loadUnread(uid: string) {
+    const { data: convs } = await supabase
+      .from('conversations').select('id')
+      .or(`user1_id.eq.${uid},user2_id.eq.${uid}`)
+    if (!convs || convs.length === 0) return
+    const { count } = await supabase
+      .from('messages').select('id', { count: 'exact', head: true })
+      .in('conversation_id', convs.map(c => c.id))
+      .neq('sender_id', uid).is('read_at', null)
+    setUnreadCount(count ?? 0)
+  }
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setCurrentUserId(user.id)
+      if (!user) return
+      setCurrentUserId(user.id)
+      loadUnread(user.id)
+      const channel = supabase
+        .channel('navbar-unread')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => loadUnread(user.id))
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, () => loadUnread(user.id))
+        .subscribe()
+      return () => { supabase.removeChannel(channel) }
     })
   }, [])
 
-  // Close mobile menu on route change
   useEffect(() => {
-    setMenuOpen(false)
-  }, [location.pathname])
+    const onScroll = () => setScrolled(window.scrollY > 8)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
-  // Lock body scroll while mobile menu is open
+  useEffect(() => { setMenuOpen(false) }, [location.pathname])
+
   useEffect(() => {
     document.body.style.overflow = menuOpen ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
   }, [menuOpen])
 
   async function handleSignOut() {
-    await supabase.auth.signOut()
-    navigate('/login')
+    await supabase.auth.signOut(); navigate('/login')
   }
 
-  function goTo(path: string) {
-    navigate(path)
-    setMenuOpen(false)
-  }
+  function goTo(path: string) { navigate(path); setMenuOpen(false) }
 
   const links = NAV_LINKS(role).filter(l => l.show)
+  const isActive = (path: string) => location.pathname.startsWith(path)
+
+  const roleColors: Record<string, string> = {
+    admin: '#fca5a5', hr: '#c4b5fd', manager: '#93c5fd', employee: '#86efac'
+  }
+  const roleColor = roleColors[role] ?? 'rgba(255,255,255,0.5)'
 
   return (
     <>
       <style>{`
-        :root {
-          --nav-h: 58px;
-          --nav-max-w: 1600px;
-        }
+        :root { --nav-h: 60px; }
 
+        /* ═══════════════════════════════
+           NAVBAR SHELL
+        ═══════════════════════════════ */
         .navbar-outer {
-          position: sticky;
-          top: 0;
-          z-index: 300;
-          background: #0d2d3a;
-          border-bottom: 1px solid rgba(255,255,255,0.06);
-        }
-
-        .navbar {
-          display: flex;
-          align-items: center;
+          position: sticky; top: 0; z-index: 300;
           height: var(--nav-h);
-          max-width: var(--nav-max-w);
-          margin: 0 auto;
+          background: #1B2B3A;
+          border-bottom: 1px solid rgba(255,255,255,0.07);
+          transition: box-shadow 0.25s ease;
+        }
+        .navbar-outer.scrolled {
+          box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+        }
+
+        .navbar-inner {
+          height: 100%; max-width: 1600px; margin: 0 auto;
           padding: 0 1.5rem;
-          gap: 0.25rem;
+          display: flex; align-items: center; gap: 0;
         }
 
-        /* ── Brand ── */
-        .navbar-brand {
-          display: flex; align-items: center; gap: 0.5rem;
-          cursor: pointer; padding: 0.3rem 0.6rem 0.3rem 0;
-          border-radius: 8px; transition: opacity 0.15s;
-          margin-right: 0.5rem; flex-shrink: 0;
-          background: none; border: none;
+        /* ═══════════════════════════════
+           BRAND
+        ═══════════════════════════════ */
+        .nav-brand {
+          display: flex; align-items: center; gap: 0.6rem;
+          text-decoration: none; border: none; background: none;
+          cursor: pointer; padding: 0; margin-right: 1.75rem;
+          flex-shrink: 0; transition: opacity 0.15s;
         }
-        .navbar-brand:hover { opacity: 0.8; }
+        .nav-brand:hover { opacity: 0.85; }
 
-        .navbar-brand-logo {
+        .nav-brand-mark {
+          width: 30px; height: 30px; border-radius: 8px;
+          background: linear-gradient(135deg, #4BACC6 0%, #365F91 100%);
           display: flex; align-items: center; justify-content: center;
-          width: 28px; height: 28px; border-radius: 8px;
-          background: linear-gradient(135deg, #00e5e5, #007a8a);
           flex-shrink: 0;
-        }
-        .navbar-brand-logo svg { width: 14px; height: 14px; }
-
-        .navbar-brand-name {
-          font-size: 1rem; font-weight: 800;
-          color: #fff; letter-spacing: -0.02em;
-          white-space: nowrap;
+          box-shadow: 0 2px 8px rgba(75,172,198,0.35);
         }
 
-        .navbar-sep {
-          width: 1px; height: 20px;
-          background: rgba(255,255,255,0.1);
-          margin: 0 0.6rem; flex-shrink: 0;
+        .nav-brand-mark svg { width: 15px; height: 15px; }
+
+        .nav-brand-text { display: flex; flex-direction: column; }
+        .nav-brand-name {
+          font-size: 0.95rem; font-weight: 900; color: white;
+          letter-spacing: -0.02em; line-height: 1.1;
+        }
+        .nav-brand-tagline {
+          font-size: 0.56rem; font-weight: 700;
+          color: rgba(75,172,198,0.7); letter-spacing: 0.12em;
+          text-transform: uppercase; line-height: 1;
         }
 
-        /* ── Desktop links ── */
-        .navbar-links {
-          display: flex; align-items: center;
-          gap: 0.1rem; flex: 1; min-width: 0;
-        }
-
-        .navbar-link {
-          position: relative;
-          padding: 0.38rem 0.85rem;
-          border-radius: 8px; border: none;
-          background: transparent; font-size: 0.85rem;
-          font-weight: 500; color: rgba(255,255,255,0.6);
-          cursor: pointer; transition: all 0.15s; white-space: nowrap;
-        }
-        .navbar-link:hover {
+        /* ═══════════════════════════════
+           SEPARATOR
+        ═══════════════════════════════ */
+        .nav-sep {
+          width: 1px; height: 22px;
           background: rgba(255,255,255,0.08);
-          color: rgba(255,255,255,0.9);
-        }
-        .navbar-link.active {
-          background: rgba(255,255,255,0.12);
-          color: #fff; font-weight: 600;
-        }
-        .navbar-link.active::after {
-          content: ''; position: absolute;
-          bottom: -1px; left: 50%; transform: translateX(-50%);
-          width: 20px; height: 2px;
-          background: #00e5e5; border-radius: 999px;
+          margin: 0 0.25rem; flex-shrink: 0;
         }
 
-        /* ── Right side (desktop) ── */
-        .navbar-right {
-          display: flex; align-items: center;
-          gap: 0.75rem; margin-left: auto; flex-shrink: 0;
+        /* ═══════════════════════════════
+           NAV LINKS
+        ═══════════════════════════════ */
+        .nav-links {
+          display: flex; align-items: center; gap: 0.1rem; flex: 1;
         }
 
-        .navbar-user-info {
-          display: flex; flex-direction: column; align-items: flex-end;
+        .nav-link {
+          position: relative;
+          display: flex; align-items: center; gap: 0.45rem;
+          padding: 0.42rem 0.9rem; border-radius: 8px;
+          border: none; background: transparent;
+          font-size: 0.84rem; font-weight: 500;
+          color: rgba(255,255,255,0.5);
+          cursor: pointer; transition: all 0.15s;
+          white-space: nowrap; font-family: inherit;
+          letter-spacing: 0.005em;
         }
-        .navbar-user-name {
-          font-size: 0.82rem; font-weight: 600;
-          color: rgba(255,255,255,0.9); line-height: 1.2;
-          white-space: nowrap; max-width: 180px;
-          overflow: hidden; text-overflow: ellipsis;
+        .nav-link-icon {
+          font-size: 0.78rem; line-height: 1;
+          opacity: 0.7; transition: opacity 0.15s;
         }
-        .navbar-user-role {
-          font-size: 0.68rem; color: rgba(255,255,255,0.4);
-          text-transform: capitalize; line-height: 1.2;
+        .nav-link:hover {
+          background: rgba(255,255,255,0.06);
+          color: rgba(255,255,255,0.85);
+        }
+        .nav-link:hover .nav-link-icon { opacity: 1; }
+
+        .nav-link.active {
+          background: rgba(75,172,198,0.12);
+          color: white; font-weight: 600;
+        }
+        .nav-link.active .nav-link-icon { opacity: 1; color: #4BACC6; }
+
+        /* Active indicator pill */
+        .nav-link.active::after {
+          content: '';
+          position: absolute; bottom: -1px; left: 50%;
+          transform: translateX(-50%);
+          width: 18px; height: 2px;
+          background: linear-gradient(90deg, #4BACC6, #4F81BD);
+          border-radius: 999px;
         }
 
-        .navbar-avatar-wrap { position: relative; flex-shrink: 0; }
-
-        .navbar-avatar {
-          width: 32px; height: 32px; border-radius: 50%;
-          background: linear-gradient(135deg, #00b8b8, #007a8a);
-          color: white; font-size: 0.72rem; font-weight: 700;
+        /* Message badge */
+        .nav-badge {
+          min-width: 17px; height: 17px;
+          background: #C0504D;
+          color: white; border-radius: 999px;
+          font-size: 0.58rem; font-weight: 800;
           display: flex; align-items: center; justify-content: center;
-          border: 2px solid rgba(255,255,255,0.15);
-          cursor: pointer; transition: all 0.15s; user-select: none;
+          padding: 0 4px; line-height: 1;
+          box-shadow: 0 2px 6px rgba(192,80,77,0.5);
+          animation: badgePop 0.3s cubic-bezier(0.34,1.56,0.64,1);
         }
-        .navbar-avatar:hover {
-          border-color: #00e5e5;
-          box-shadow: 0 0 0 3px rgba(0,229,229,0.2);
+        @keyframes badgePop {
+          from { transform: scale(0); opacity: 0; }
+          to   { transform: scale(1); opacity: 1; }
+        }
+
+        /* ═══════════════════════════════
+           RIGHT SECTION
+        ═══════════════════════════════ */
+        .nav-right {
+          display: flex; align-items: center; gap: 0.75rem;
+          margin-left: auto; flex-shrink: 0;
+        }
+
+        /* User info */
+        .nav-user-info { display: flex; flex-direction: column; align-items: flex-end; }
+        .nav-user-name {
+          font-size: 0.8rem; font-weight: 700; color: rgba(255,255,255,0.88);
+          line-height: 1.2; white-space: nowrap;
+          max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+        }
+        .nav-user-role {
+          font-size: 0.62rem; font-weight: 700;
+          text-transform: capitalize; line-height: 1.2;
+          letter-spacing: 0.03em;
+        }
+
+        /* Avatar */
+        .nav-avatar-wrap { position: relative; flex-shrink: 0; }
+        .nav-avatar {
+          width: 34px; height: 34px; border-radius: 50%;
+          background: linear-gradient(135deg, #4BACC6, #243F60);
+          color: white; font-size: 0.72rem; font-weight: 800;
+          display: flex; align-items: center; justify-content: center;
+          border: 2px solid rgba(255,255,255,0.1);
+          cursor: pointer; transition: all 0.18s;
+          letter-spacing: -0.01em; user-select: none;
+        }
+        .nav-avatar:hover {
+          border-color: #4BACC6;
+          box-shadow: 0 0 0 3px rgba(75,172,198,0.2), 0 2px 10px rgba(0,0,0,0.25);
           transform: scale(1.06);
         }
 
-        .navbar-avatar-tooltip {
+        /* Avatar tooltip */
+        .nav-avatar-tooltip {
           position: absolute; bottom: calc(100% + 10px); right: 0;
-          background: #1a3a4a; color: white;
-          font-size: 0.75rem; font-weight: 600;
-          padding: 0.4rem 0.75rem; border-radius: 8px;
-          white-space: nowrap; pointer-events: none;
-          opacity: 0; transform: translateY(4px);
+          background: #0f1d2a; color: white; font-size: 0.72rem; font-weight: 600;
+          padding: 0.4rem 0.8rem; border-radius: 8px; white-space: nowrap;
+          pointer-events: none; opacity: 0; transform: translateY(5px);
           transition: all 0.18s; z-index: 50;
+          border: 1px solid rgba(255,255,255,0.08);
+          box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        }
+        .nav-avatar-tooltip::after {
+          content: ''; position: absolute; top: 100%; right: 11px;
+          border: 5px solid transparent; border-top-color: #0f1d2a;
+        }
+        .nav-avatar-wrap:hover .nav-avatar-tooltip { opacity: 1; transform: translateY(0); }
+
+        /* Sign out */
+        .nav-signout {
+          display: flex; align-items: center; gap: 0.35rem;
+          padding: 0.38rem 0.85rem;
+          background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        }
-        .navbar-avatar-tooltip::after {
-          content: ''; position: absolute;
-          top: 100%; right: 10px;
-          border: 5px solid transparent;
-          border-top-color: #1a3a4a;
-        }
-        .navbar-avatar-wrap:hover .navbar-avatar-tooltip {
-          opacity: 1; transform: translateY(0); pointer-events: auto;
-        }
-
-        .navbar-signout {
-          padding: 0.35rem 0.85rem;
-          background: transparent;
-          border: 1px solid rgba(255,255,255,0.15);
-          border-radius: 7px; color: rgba(255,255,255,0.65);
-          font-size: 0.8rem; font-weight: 500;
-          cursor: pointer; transition: all 0.15s; white-space: nowrap;
-        }
-        .navbar-signout:hover {
-          background: rgba(255,255,255,0.08);
-          border-color: rgba(255,255,255,0.3);
-          color: rgba(255,255,255,0.9);
-        }
-
-        /* ── Hamburger (hidden on desktop) ── */
-        .navbar-hamburger {
-          display: none;
-          flex-direction: column;
-          justify-content: center;
-          align-items: center;
-          gap: 4px;
-          width: 36px; height: 36px;
-          background: transparent;
-          border: none;
           border-radius: 8px;
-          cursor: pointer;
-          flex-shrink: 0;
-          transition: background 0.15s;
+          color: rgba(255,255,255,0.5); font-size: 0.78rem; font-weight: 600;
+          cursor: pointer; transition: all 0.15s; white-space: nowrap;
+          font-family: inherit;
         }
-        .navbar-hamburger:hover { background: rgba(255,255,255,0.08); }
-
-        .hamburger-bar {
-          width: 18px; height: 2px;
-          background: white;
-          border-radius: 2px;
-          transition: transform 0.25s, opacity 0.2s;
-        }
-        .navbar-hamburger.open .hamburger-bar:nth-child(1) {
-          transform: translateY(6px) rotate(45deg);
-        }
-        .navbar-hamburger.open .hamburger-bar:nth-child(2) {
-          opacity: 0;
-        }
-        .navbar-hamburger.open .hamburger-bar:nth-child(3) {
-          transform: translateY(-6px) rotate(-45deg);
-        }
-
-        /* ── Mobile dropdown panel ── */
-        .navbar-mobile-panel {
-          position: fixed;
-          top: var(--nav-h);
-          left: 0; right: 0;
-          bottom: 0;
-          background: rgba(0,0,0,0.4);
-          z-index: 250;
-          opacity: 0;
-          pointer-events: none;
-          transition: opacity 0.2s;
-        }
-        .navbar-mobile-panel.open {
-          opacity: 1;
-          pointer-events: auto;
-        }
-
-        .navbar-mobile-sheet {
-          background: #0d2d3a;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
-          padding: 0.75rem 1rem 1.25rem;
-          transform: translateY(-12px);
-          opacity: 0;
-          transition: all 0.22s ease;
-          max-height: 0;
-          overflow: hidden;
-        }
-        .navbar-mobile-panel.open .navbar-mobile-sheet {
-          transform: translateY(0);
-          opacity: 1;
-          max-height: 600px;
-        }
-
-        .mobile-user-row {
-          display: flex; align-items: center; gap: 0.75rem;
-          padding: 0.85rem 0.75rem;
-          margin-bottom: 0.5rem;
-          background: rgba(255,255,255,0.06);
-          border-radius: 12px;
-        }
-
-        .mobile-user-avatar {
-          width: 40px; height: 40px; border-radius: 50%;
-          background: linear-gradient(135deg, #00b8b8, #007a8a);
-          color: white; font-size: 0.85rem; font-weight: 700;
-          display: flex; align-items: center; justify-content: center;
-          flex-shrink: 0;
-        }
-
-        .mobile-user-name {
-          font-size: 0.92rem; font-weight: 700; color: white;
-          display: block; line-height: 1.25;
-        }
-        .mobile-user-role {
-          font-size: 0.74rem; color: rgba(255,255,255,0.5);
-          text-transform: capitalize;
-        }
-
-        .mobile-link {
-          display: flex; align-items: center; gap: 0.75rem;
-          width: 100%;
-          padding: 0.75rem 0.75rem;
-          background: transparent;
-          border: none;
-          border-radius: 10px;
-          font-size: 0.9rem;
-          font-weight: 500;
-          color: rgba(255,255,255,0.75);
-          cursor: pointer;
-          transition: all 0.12s;
-          text-align: left;
-          margin-bottom: 0.15rem;
-        }
-        .mobile-link:hover { background: rgba(255,255,255,0.07); }
-        .mobile-link.active {
-          background: rgba(0,229,229,0.12);
-          color: #00e5e5;
-          font-weight: 700;
-        }
-        .mobile-link-icon { font-size: 1rem; width: 22px; text-align: center; flex-shrink: 0; }
-
-        .mobile-divider {
-          border: none;
-          border-top: 1px solid rgba(255,255,255,0.08);
-          margin: 0.6rem 0;
-        }
-
-        .mobile-signout {
-          width: 100%;
-          padding: 0.75rem;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 10px;
-          color: rgba(255,255,255,0.8);
-          font-size: 0.88rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-        .mobile-signout:hover {
-          background: rgba(220,38,38,0.15);
-          border-color: rgba(220,38,38,0.4);
+        .nav-signout:hover {
+          background: rgba(192,80,77,0.12);
+          border-color: rgba(192,80,77,0.3);
           color: #fca5a5;
         }
 
-        /* ════════════════════════════════ */
-        /* Breakpoints */
-        /* ════════════════════════════════ */
+        /* ═══════════════════════════════
+           HAMBURGER
+        ═══════════════════════════════ */
+        .nav-hamburger {
+          display: none; flex-direction: column;
+          justify-content: center; align-items: center; gap: 5px;
+          width: 38px; height: 38px;
+          background: transparent; border: none; border-radius: 8px;
+          cursor: pointer; flex-shrink: 0; transition: background 0.15s;
+        }
+        .nav-hamburger:hover { background: rgba(255,255,255,0.07); }
+        .ham-bar {
+          width: 18px; height: 2px; background: rgba(255,255,255,0.75);
+          border-radius: 2px; transition: transform 0.25s, opacity 0.2s, width 0.2s;
+        }
+        .nav-hamburger.open .ham-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+        .nav-hamburger.open .ham-bar:nth-child(2) { opacity: 0; width: 0; }
+        .nav-hamburger.open .ham-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
-        /* Ultrawide: cap content width, more breathing room */
-        @media (min-width: 1920px) {
-          :root { --nav-max-w: 1800px; }
-          .navbar { padding: 0 2.5rem; }
+        /* ═══════════════════════════════
+           MOBILE DRAWER
+        ═══════════════════════════════ */
+        .nav-mobile-backdrop {
+          position: fixed; inset: 0; top: var(--nav-h);
+          background: rgba(0,0,0,0.5); z-index: 250;
+          opacity: 0; pointer-events: none;
+          transition: opacity 0.22s ease;
+          backdrop-filter: blur(2px);
+        }
+        .nav-mobile-backdrop.open { opacity: 1; pointer-events: auto; }
+
+        .nav-mobile-drawer {
+          position: absolute; top: 0; left: 0; right: 0;
+          background: #1B2B3A;
+          border-bottom: 1px solid rgba(255,255,255,0.08);
+          padding: 0.75rem 1rem 1.25rem;
+          transform: translateY(-8px); opacity: 0;
+          transition: transform 0.22s ease, opacity 0.22s ease;
+          max-height: 0; overflow: hidden;
+        }
+        .nav-mobile-backdrop.open .nav-mobile-drawer {
+          transform: translateY(0); opacity: 1; max-height: 700px;
         }
 
-        /* Large desktop / standard */
-        @media (min-width: 1024px) {
-          .navbar-links { gap: 0.2rem; }
+        /* Mobile user row */
+        .mob-user-row {
+          display: flex; align-items: center; gap: 0.85rem;
+          padding: 0.85rem 0.85rem; margin-bottom: 0.6rem;
+          background: rgba(255,255,255,0.05); border-radius: 12px;
+          border: 1px solid rgba(255,255,255,0.06); cursor: pointer;
+          transition: background 0.12s;
+        }
+        .mob-user-row:hover { background: rgba(75,172,198,0.1); }
+
+        .mob-avatar {
+          width: 42px; height: 42px; border-radius: 50%;
+          background: linear-gradient(135deg, #4BACC6, #243F60);
+          color: white; font-size: 0.9rem; font-weight: 800;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0; border: 2px solid rgba(255,255,255,0.1);
+        }
+        .mob-name { font-size: 0.92rem; font-weight: 700; color: white; display: block; line-height: 1.3; }
+        .mob-role { font-size: 0.72rem; font-weight: 700; text-transform: capitalize; display: block; margin-top: 0.1rem; }
+
+        /* Mobile links */
+        .mob-links-section { margin-bottom: 0.6rem; }
+        .mob-section-label {
+          font-size: 0.6rem; font-weight: 700; color: rgba(255,255,255,0.3);
+          text-transform: uppercase; letter-spacing: 0.1em;
+          padding: 0.5rem 0.85rem 0.3rem; display: block;
         }
 
-        /* Tablet — tighten spacing, hide role text */
-        @media (max-width: 1023px) and (min-width: 769px) {
-          .navbar { padding: 0 1.1rem; }
-          .navbar-link { padding: 0.36rem 0.65rem; font-size: 0.82rem; }
-          .navbar-user-info { display: none; }
+        .mob-link {
+          display: flex; align-items: center; gap: 0.75rem;
+          width: 100%; padding: 0.72rem 0.85rem;
+          background: transparent; border: none; border-radius: 9px;
+          font-size: 0.88rem; font-weight: 500;
+          color: rgba(255,255,255,0.65);
+          cursor: pointer; transition: all 0.12s; text-align: left;
+          font-family: inherit; margin-bottom: 0.1rem;
+        }
+        .mob-link:hover { background: rgba(255,255,255,0.06); color: white; }
+        .mob-link.active { background: rgba(75,172,198,0.12); color: white; font-weight: 700; }
+
+        .mob-link-icon {
+          width: 28px; height: 28px; border-radius: 7px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 0.82rem; flex-shrink: 0;
+          background: rgba(255,255,255,0.06);
+        }
+        .mob-link.active .mob-link-icon {
+          background: rgba(75,172,198,0.2); color: #4BACC6;
         }
 
-        /* Mobile — switch to hamburger menu */
-        @media (max-width: 768px) {
-          .navbar { padding: 0 0.85rem 0 1rem; }
-          .navbar-sep { display: none; }
-          .navbar-links { display: none; }
-          .navbar-user-info { display: none; }
-          .navbar-signout { display: none; }
-          .navbar-avatar-wrap { display: none; }
-          .navbar-hamburger { display: flex; }
+        .mob-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 0.6rem 0; }
+
+        .mob-signout {
+          width: 100%; padding: 0.72rem 0.85rem;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08); border-radius: 9px;
+          color: rgba(255,255,255,0.65); font-size: 0.85rem; font-weight: 600;
+          cursor: pointer; transition: all 0.15s; font-family: inherit;
+          display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+        }
+        .mob-signout:hover {
+          background: rgba(192,80,77,0.12);
+          border-color: rgba(192,80,77,0.3); color: #fca5a5;
         }
 
-        @media (max-width: 380px) {
-          .navbar-brand-name { display: none; }
+        /* ═══════════════════════════════
+           RESPONSIVE
+        ═══════════════════════════════ */
+        @media(min-width:1920px) { .navbar-inner { max-width: 1800px; padding: 0 2.5rem; } }
+
+        @media(max-width:1100px) {
+          .navbar-inner { padding: 0 1rem; }
+          .nav-link { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
+          .nav-user-info { display: none; }
+          .nav-brand-tagline { display: none; }
         }
+
+        @media(max-width:768px) {
+          .nav-links   { display: none; }
+          .nav-sep     { display: none; }
+          .nav-user-info { display: none; }
+          .nav-signout { display: none; }
+          .nav-avatar-wrap { display: none; }
+          .nav-hamburger { display: flex; }
+          .navbar-inner { padding: 0 1rem; }
+        }
+
+        @media(max-width:380px) { .nav-brand-name { font-size: 0.88rem; } }
       `}</style>
 
-      <div className="navbar-outer">
-        <nav className="navbar">
+      <div className={`navbar-outer${scrolled ? ' scrolled' : ''}`}>
+        <div className="navbar-inner">
 
           {/* Brand */}
-          <button
-            className="navbar-brand"
-            onClick={() => goTo('/dashboard')}
-            aria-label="Go to dashboard"
-          >
-            <div className="navbar-brand-logo">
+          <button className="nav-brand" onClick={() => goTo('/dashboard')} aria-label="InfoWall — go to dashboard">
+            <div className="nav-brand-mark">
               <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="3" width="7" height="7" rx="1" />
-                <rect x="3" y="14" width="7" height="7" rx="1" />
-                <rect x="14" y="14" width="7" height="7" rx="1" />
+                <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+                <rect x="14" y="14" width="7" height="7" rx="1.5"/>
               </svg>
             </div>
-            <span className="navbar-brand-name">InfoWall</span>
+            <div className="nav-brand-text">
+              <span className="nav-brand-name">InfoWall</span>
+              <span className="nav-brand-tagline">Enterprise</span>
+            </div>
           </button>
 
-          <div className="navbar-sep" />
+          <div className="nav-sep" />
 
-          {/* Desktop links */}
-          <div className="navbar-links">
+          {/* Links */}
+          <nav className="nav-links">
             {links.map(link => (
               <button
                 key={link.path}
-                className={`navbar-link${location.pathname === link.path ? ' active' : ''}`}
+                className={`nav-link${isActive(link.path) ? ' active' : ''}`}
                 onClick={() => goTo(link.path)}
               >
+                <span className="nav-link-icon">{link.icon}</span>
                 {link.label}
+                {link.path === '/messages' && unreadCount > 0 && (
+                  <span className="nav-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                )}
               </button>
             ))}
-          </div>
+          </nav>
 
-          {/* Desktop right side */}
-          <div className="navbar-right">
-            <div className="navbar-user-info">
-              <span className="navbar-user-name">{fullName ?? ''}</span>
-              <span className="navbar-user-role">{role}</span>
+          {/* Right */}
+          <div className="nav-right">
+            <div className="nav-user-info">
+              <span className="nav-user-name">{fullName ?? ''}</span>
+              <span className="nav-user-role" style={{ color: roleColor }}>{role}</span>
             </div>
 
-            <div className="navbar-avatar-wrap">
+            <div className="nav-avatar-wrap">
               <div
-                className="navbar-avatar"
+                className="nav-avatar"
                 onClick={() => currentUserId && goTo(`/profile/${currentUserId}`)}
                 role="button"
-                aria-label="Go to your profile"
+                aria-label="View profile"
               >
                 {getInitials(fullName)}
               </div>
-              <div className="navbar-avatar-tooltip">View your profile</div>
+              <div className="nav-avatar-tooltip">My profile</div>
             </div>
 
-            <button className="navbar-signout" onClick={handleSignOut}>
+            <button className="nav-signout" onClick={handleSignOut}>
+              <span style={{ fontSize: '0.78rem' }}>⏻</span>
               Sign out
             </button>
           </div>
 
-          {/* Hamburger (mobile only) */}
+          {/* Hamburger */}
           <button
-            className={`navbar-hamburger${menuOpen ? ' open' : ''}`}
+            className={`nav-hamburger${menuOpen ? ' open' : ''}`}
             onClick={() => setMenuOpen(o => !o)}
-            aria-label="Toggle menu"
-            aria-expanded={menuOpen}
+            aria-label="Toggle navigation menu"
           >
-            <span className="hamburger-bar" />
-            <span className="hamburger-bar" />
-            <span className="hamburger-bar" />
+            <span className="ham-bar"/>
+            <span className="ham-bar"/>
+            <span className="ham-bar"/>
           </button>
-
-        </nav>
+        </div>
       </div>
 
-      {/* Mobile dropdown panel */}
-      <div
-        className={`navbar-mobile-panel${menuOpen ? ' open' : ''}`}
-        onClick={() => setMenuOpen(false)}
-      >
-        <div className="navbar-mobile-sheet" onClick={e => e.stopPropagation()}>
+      {/* Mobile drawer */}
+      <div className={`nav-mobile-backdrop${menuOpen ? ' open' : ''}`} onClick={() => setMenuOpen(false)}>
+        <div className="nav-mobile-drawer" onClick={e => e.stopPropagation()}>
 
-          <div
-            className="mobile-user-row"
-            onClick={() => currentUserId && goTo(`/profile/${currentUserId}`)}
-          >
-            <div className="mobile-user-avatar">{getInitials(fullName)}</div>
-            <div>
-              <span className="mobile-user-name">{fullName ?? 'Your profile'}</span>
-              <span className="mobile-user-role">{role}</span>
+          {/* User row */}
+          <div className="mob-user-row" onClick={() => { currentUserId && goTo(`/profile/${currentUserId}`) }}>
+            <div className="mob-avatar">{getInitials(fullName)}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span className="mob-name">{fullName ?? 'My profile'}</span>
+              <span className="mob-role" style={{ color: roleColor }}>{role}</span>
             </div>
+            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.25)' }}>›</span>
           </div>
 
-          {links.map(link => (
-            <button
-              key={link.path}
-              className={`mobile-link${location.pathname === link.path ? ' active' : ''}`}
-              onClick={() => goTo(link.path)}
-            >
-              <span className="mobile-link-icon">{link.icon}</span>
-              {link.label}
-            </button>
-          ))}
+          {/* Nav links */}
+          <div className="mob-links-section">
+            <span className="mob-section-label">Navigation</span>
+            {links.map(link => (
+              <button
+                key={link.path}
+                className={`mob-link${isActive(link.path) ? ' active' : ''}`}
+                onClick={() => goTo(link.path)}
+              >
+                <div className="mob-link-icon">{link.icon}</div>
+                <span style={{ flex: 1 }}>{link.label}</span>
+                {link.path === '/messages' && unreadCount > 0 && (
+                  <span style={{
+                    background: '#C0504D', color: 'white', borderRadius: 999,
+                    fontSize: '0.6rem', fontWeight: 800, padding: '0.12rem 0.45rem',
+                    boxShadow: '0 2px 6px rgba(192,80,77,0.4)',
+                  }}>
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
 
-          <hr className="mobile-divider" />
-
-          <button className="mobile-signout" onClick={handleSignOut}>
-            Sign out
+          <div className="mob-divider" />
+          <button className="mob-signout" onClick={handleSignOut}>
+            <span>⏻</span> Sign out
           </button>
         </div>
       </div>
     </>
   )
 }
-
-export default Navbar

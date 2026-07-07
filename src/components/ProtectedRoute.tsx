@@ -2,63 +2,28 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
-interface ProtectedRouteProps {
+interface Props {
   children: React.ReactNode
   allowedRoles?: string[]
 }
 
-function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const [status, setStatus] = useState<'loading' | 'allowed' | 'denied'>('loading')
+export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const navigate = useNavigate()
+  const [ok, setOk] = useState(false)
 
   useEffect(() => {
     async function check() {
       const { data: { user } } = await supabase.auth.getUser()
-
-      if (!user) {
-        navigate('/login')
-        return
+      if (!user) { navigate('/login'); return }
+      if (allowedRoles) {
+        const { data: p } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+        if (!p || !allowedRoles.includes(p.role)) { navigate('/dashboard'); return }
       }
-
-      if (!allowedRoles) {
-        setStatus('allowed')
-        return
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (profile && allowedRoles.includes(profile.role)) {
-        setStatus('allowed')
-      } else {
-        navigate('/dashboard')
-      }
+      setOk(true)
     }
-
     check()
-  }, [navigate, allowedRoles])
+  }, [navigate])
 
-  if (status === 'loading') {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        fontSize: '1rem',
-        color: '#6b7280',
-      }}>
-        Loading…
-      </div>
-    )
-  }
-
-  if (status === 'denied') return null
-
+  if (!ok) return null
   return <>{children}</>
 }
-
-export default ProtectedRoute
