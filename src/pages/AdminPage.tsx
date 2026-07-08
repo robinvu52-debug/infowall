@@ -90,10 +90,8 @@ function timeAgo(d: string): string {
 
 function RoleBadge({ role }: { role: string }) {
   const map: Record<string, { bg: string; color: string }> = {
-    admin:    { bg: '#fef2f2', color: '#dc2626' },
-    hr:       { bg: '#faf5ff', color: '#7c3aed' },
-    manager:  { bg: '#eff6ff', color: '#1d4ed8' },
-    employee: { bg: '#f0fdf4', color: '#16a34a' },
+    admin: { bg: '#fef2f2', color: '#dc2626' }, hr: { bg: '#faf5ff', color: '#7c3aed' },
+    manager: { bg: '#eff6ff', color: '#1d4ed8' }, employee: { bg: '#f0fdf4', color: '#16a34a' },
   }
   const c = map[role] ?? { bg: '#f3f4f6', color: '#374151' }
   return <span style={{ background: c.bg, color: c.color, fontSize: '0.68rem', fontWeight: 700, padding: '0.18rem 0.55rem', borderRadius: 999, textTransform: 'capitalize' }}>{role}</span>
@@ -119,7 +117,6 @@ export default function AdminPage() {
   const [allPosts, setAllPosts] = useState<PostRow[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Users
   const [userSearch, setUserSearch] = useState('')
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set())
   const [showAddUser, setShowAddUser] = useState(false)
@@ -130,16 +127,13 @@ export default function AdminPage() {
   const [editingPin, setEditingPin] = useState<Record<string, string>>({})
   const [savingPin, setSavingPin] = useState<string | null>(null)
 
-  // Departments
   const [newDeptName, setNewDeptName] = useState('')
   const [editingDept, setEditingDept] = useState<Record<string, string>>({})
 
-  // Posts
   const [postSearch, setPostSearch] = useState('')
   const [postTypeFilter, setPostTypeFilter] = useState<'all' | 'announcement' | 'news_event'>('all')
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null)
 
-  // Attendance
   const todayStr = fmtDate(new Date())
   const [attendanceDate, setAttendanceDate] = useState(todayStr)
   const [showManualAtt, setShowManualAtt] = useState(false)
@@ -147,7 +141,6 @@ export default function AdminPage() {
   const [addingManualAtt, setAddingManualAtt] = useState(false)
   const [manualAttError, setManualAttError] = useState<string | null>(null)
 
-  // Timetable
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [showAddSched, setShowAddSched] = useState(false)
   const [newSched, setNewSched] = useState({ user_id: '', date: todayStr, start_time: '09:00', end_time: '17:00', note: '' })
@@ -155,7 +148,6 @@ export default function AdminPage() {
   const [deletingSchedId, setDeletingSchedId] = useState<string | null>(null)
   const [schedError, setSchedError] = useState<string | null>(null)
 
-  // SQL
   const [sqlQuery, setSqlQuery] = useState('select id, full_name, role from profiles order by full_name')
   const [sqlResults, setSqlResults] = useState<unknown[] | null>(null)
   const [sqlStatus, setSqlStatus] = useState<string | null>(null)
@@ -206,7 +198,6 @@ export default function AdminPage() {
   useEffect(() => { if (!loading) loadAttendance(attendanceDate) }, [attendanceDate])
   useEffect(() => { if (!loading) loadSchedules(weekStart) }, [weekStart])
 
-  // ── User handlers ──
   async function handleAddUser() {
     if (!newUser.email || !newUser.password || !newUser.full_name) { setAddUserError('Name, email and password are required.'); return }
     if (newUser.password.length < 8) { setAddUserError('Password must be at least 8 characters.'); return }
@@ -251,7 +242,6 @@ export default function AdminPage() {
     setExpandedDepts(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
-  // ── Dept handlers ──
   async function addDepartment() {
     if (!newDeptName.trim()) return
     const { data } = await supabase.from('departments').insert({ name: newDeptName.trim() }).select().single()
@@ -272,7 +262,6 @@ export default function AdminPage() {
     setDepartments(prev => prev.filter(d => d.id !== id))
   }
 
-  // ── Post handlers ──
   async function handleDeletePost(postId: string) {
     if (!window.confirm('Delete this post? This cannot be undone.')) return
     setDeletingPostId(postId)
@@ -281,7 +270,6 @@ export default function AdminPage() {
     setDeletingPostId(null)
   }
 
-  // ── Attendance handlers ──
   async function handleAddManualAttendance() {
     if (!manualAtt.user_id || !manualAtt.date) { setManualAttError('Please select a user and date.'); return }
     setAddingManualAtt(true); setManualAttError(null)
@@ -297,7 +285,6 @@ export default function AdminPage() {
     setAddingManualAtt(false)
   }
 
-  // ── Schedule handlers ──
   async function handleAddSchedule() {
     if (!newSched.user_id || !newSched.date) { setSchedError('Please select a user and date.'); return }
     setAddingSched(true); setSchedError(null)
@@ -318,7 +305,6 @@ export default function AdminPage() {
     setDeletingSchedId(null)
   }
 
-  // ── SQL ──
   async function runSql() {
     if (!sqlQuery.trim()) return
     setSqlRunning(true); setSqlResults(null); setSqlStatus(null); setSqlError(null)
@@ -329,7 +315,6 @@ export default function AdminPage() {
     else { setSqlStatus('Query executed successfully'); setSqlResults([]) }
   }
 
-  // ── Derived ──
   const searchedProfiles = profiles.filter(p => !userSearch || p.full_name?.toLowerCase().includes(userSearch.toLowerCase()))
   const profilesByDept = departments.map((dept, i) => ({
     dept, palette: DEPT_PALETTE[i % DEPT_PALETTE.length],
@@ -351,38 +336,30 @@ export default function AdminPage() {
     return matchSearch && matchType
   })
 
-  // Overview stats
   const pinsSet = profiles.filter(p => p.kiosk_pin).length
-  const todayAtt = attendance.length
-  const _weekShifts = schedules.length
   const mustReadPosts = allPosts.filter(p => p.must_read).length
   const roleCount = ['admin', 'hr', 'manager', 'employee'].map(r => ({ role: r, count: profiles.filter(p => p.role === r).length }))
 
+  const tabGroups = [
+    { label: 'Management', tabs: TABS.filter(t => t.group === 'main') },
+    { label: 'Operations',  tabs: TABS.filter(t => t.group === 'data') },
+    { label: 'Developer',   tabs: TABS.filter(t => t.group === 'dev') },
+  ]
+
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: '#6b7280', fontFamily: 'Nunito, sans-serif' }}>
-      Loading…
-    </div>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: '#6b7280', fontFamily: 'Nunito, sans-serif' }}>Loading…</div>
   )
 
   function renderUserTable(members: Profile[]) {
     return (
       <table className="al-table">
-        <thead>
-          <tr>
-            <th>Name</th><th>Role</th><th>Department</th><th>Kiosk PIN</th><th style={{ width: 50 }}></th>
-          </tr>
-        </thead>
+        <thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Kiosk PIN</th><th style={{ width: 50 }}></th></tr></thead>
         <tbody>
           {members.length === 0 ? (
             <tr className="empty-row"><td colSpan={5}>No members in this department.</td></tr>
           ) : members.map(p => (
             <tr key={p.id}>
-              <td>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <Avatar name={p.full_name} />
-                  <span style={{ fontWeight: 500 }}>{p.full_name ?? '—'}</span>
-                </div>
-              </td>
+              <td><div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}><Avatar name={p.full_name} /><span style={{ fontWeight: 500 }}>{p.full_name ?? '—'}</span></div></td>
               <td>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <RoleBadge role={p.role} />
@@ -400,26 +377,19 @@ export default function AdminPage() {
               <td>
                 {p.id in editingPin ? (
                   <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                    <input
-                      type="text" inputMode="numeric" maxLength={4} placeholder="4 digits"
+                    <input type="text" inputMode="numeric" maxLength={4} placeholder="4 digits"
                       value={editingPin[p.id] ?? ''}
                       onChange={e => setEditingPin(prev => ({ ...prev, [p.id]: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
                       autoFocus
                       style={{ width: 72, padding: '0.3rem 0.5rem', border: '1px solid #4BACC6', borderRadius: 6, fontSize: '0.82rem', fontFamily: 'monospace', letterSpacing: '0.2em', textAlign: 'center' }}
                     />
-                    <button className="btn-primary" style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }} onClick={() => savePin(p.id)} disabled={savingPin === p.id}>
-                      {savingPin === p.id ? '…' : 'Save'}
-                    </button>
+                    <button className="btn-primary" style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }} onClick={() => savePin(p.id)} disabled={savingPin === p.id}>{savingPin === p.id ? '…' : 'Save'}</button>
                     <button className="btn-secondary" style={{ padding: '0.3rem 0.55rem', fontSize: '0.75rem' }} onClick={() => setEditingPin(prev => { const n = { ...prev }; delete n[p.id]; return n })}>✕</button>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: p.kiosk_pin ? '#243F60' : '#d1d5db', letterSpacing: '0.12em' }}>
-                      {p.kiosk_pin ? '● ● ● ●' : 'No PIN'}
-                    </span>
-                    <button className="btn-secondary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem' }} onClick={() => setEditingPin(prev => ({ ...prev, [p.id]: '' }))}>
-                      {p.kiosk_pin ? 'Change' : 'Set PIN'}
-                    </button>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: p.kiosk_pin ? '#243F60' : '#d1d5db', letterSpacing: '0.12em' }}>{p.kiosk_pin ? '● ● ● ●' : 'No PIN'}</span>
+                    <button className="btn-secondary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem' }} onClick={() => setEditingPin(prev => ({ ...prev, [p.id]: '' }))}>{p.kiosk_pin ? 'Change' : 'Set PIN'}</button>
                   </div>
                 )}
               </td>
@@ -435,66 +405,27 @@ export default function AdminPage() {
     )
   }
 
-  const tabGroups = [
-    { label: 'Management', tabs: TABS.filter(t => t.group === 'main') },
-    { label: 'Operations',  tabs: TABS.filter(t => t.group === 'data') },
-    { label: 'Developer',   tabs: TABS.filter(t => t.group === 'dev') },
-  ]
-
   return (
     <>
       <style>{`
         .al { min-height:100vh; background:#F2F4F7; font-family:'Nunito','Segoe UI',system-ui,sans-serif; }
 
-        /* ── Top nav ── */
-        .al-topnav {
-          background:white; border-bottom:1px solid #e5e7eb;
-          position:sticky; top:58px; z-index:200;
-          display:flex; align-items:stretch;
-          padding:0 1.5rem; gap:0;
-          box-shadow:0 1px 3px rgba(0,0,0,0.05);
-          overflow-x:auto;
-        }
+        .al-topnav { background:white; border-bottom:1px solid #e5e7eb; position:sticky; top:60px; z-index:200; display:flex; align-items:stretch; padding:0 1.5rem; gap:0; box-shadow:0 1px 3px rgba(0,0,0,0.05); overflow-x:auto; }
         .al-topnav::-webkit-scrollbar { display:none; }
-
-        .al-nav-group {
-          display:flex; align-items:center; gap:0;
-          position:relative;
-        }
-        .al-nav-group:not(:last-child)::after {
-          content:''; width:1px; height:20px; background:#e5e7eb;
-          margin:0 0.35rem; flex-shrink:0;
-        }
-
-        .al-nav-group-label {
-          font-size:0.6rem; font-weight:700; color:#c4c9d4;
-          text-transform:uppercase; letter-spacing:0.1em;
-          padding:0 0.5rem; white-space:nowrap; flex-shrink:0;
-        }
-
-        .al-nav-btn {
-          display:flex; align-items:center; gap:0.4rem;
-          padding:0.85rem 0.9rem; border:none; background:transparent;
-          font-size:0.82rem; font-weight:500; color:#6b7280;
-          cursor:pointer; transition:all 0.12s; white-space:nowrap;
-          position:relative; border-bottom:2px solid transparent;
-          font-family:inherit;
-        }
+        .al-nav-group { display:flex; align-items:center; gap:0; position:relative; }
+        .al-nav-group:not(:last-child)::after { content:''; width:1px; height:20px; background:#e5e7eb; margin:0 0.35rem; flex-shrink:0; }
+        .al-nav-group-label { font-size:0.6rem; font-weight:700; color:#c4c9d4; text-transform:uppercase; letter-spacing:0.1em; padding:0 0.5rem; white-space:nowrap; flex-shrink:0; }
+        .al-nav-btn { display:flex; align-items:center; gap:0.4rem; padding:0.85rem 0.9rem; border:none; background:transparent; font-size:0.82rem; font-weight:500; color:#6b7280; cursor:pointer; transition:all 0.12s; white-space:nowrap; position:relative; border-bottom:2px solid transparent; font-family:inherit; }
         .al-nav-btn:hover { color:#243F60; background:#f8f9fb; }
         .al-nav-btn.active { color:#243F60; font-weight:700; border-bottom-color:#4BACC6; }
-        .al-nav-btn-icon { font-size:0.88rem; }
 
-        /* ── Body ── */
         .al-body { max-width:1320px; margin:0 auto; padding:1.75rem 1.5rem 3rem; }
 
-        /* Cards */
         .al-card { background:white; border:1px solid #e5e7eb; border-radius:14px; overflow:hidden; margin-bottom:1rem; }
-
         .al-panel-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:1.25rem; gap:1rem; flex-wrap:wrap; }
         .al-panel-title { font-size:1.15rem; font-weight:800; color:#1A2B3C; margin:0; letter-spacing:-0.01em; }
         .al-panel-sub { font-size:0.82rem; color:#9ca3af; margin:0.15rem 0 0; }
 
-        /* Overview stats */
         .overview-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem; margin-bottom:1.25rem; }
         .stat-card { background:white; border:1px solid #e5e7eb; border-radius:14px; padding:1.25rem 1.35rem; display:flex; flex-direction:column; gap:0.5rem; }
         .stat-card-icon { font-size:1.4rem; }
@@ -503,7 +434,6 @@ export default function AdminPage() {
         .stat-card-sub { font-size:0.78rem; color:#4BACC6; font-weight:600; }
 
         .overview-row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem; }
-
         .al-section-title { font-size:0.72rem; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:0.08em; padding:0.85rem 1.1rem; border-bottom:1px solid #f3f4f6; display:flex; align-items:center; justify-content:space-between; }
         .al-section-title a { font-size:0.72rem; color:#4BACC6; font-weight:600; cursor:pointer; text-decoration:none; }
         .al-section-title a:hover { text-decoration:underline; }
@@ -515,7 +445,6 @@ export default function AdminPage() {
         .role-bar-fill { height:100%; border-radius:999px; transition:width 0.5s ease; }
         .role-bar-count { font-size:0.78rem; font-weight:700; color:#6b7280; width:28px; text-align:right; flex-shrink:0; }
 
-        /* Tables */
         .al-table-wrap { overflow-x:auto; }
         .al-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
         .al-table th { text-align:left; padding:0.65rem 1.1rem; background:#f9fafb; border-bottom:1px solid #e5e7eb; font-size:0.7rem; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; white-space:nowrap; }
@@ -523,7 +452,6 @@ export default function AdminPage() {
         .al-table tr:last-child td { border-bottom:none; }
         .al-table tr:hover td { background:#fafafa; }
 
-        /* Inputs */
         .al-select { padding:0.32rem 0.6rem; border:1px solid #e5e7eb; border-radius:7px; font-size:0.8rem; background:white; color:#374151; cursor:pointer; font-family:inherit; }
         .al-select:focus { outline:none; border-color:#4BACC6; }
         .al-input { padding:0.5rem 0.85rem; border:1px solid #e5e7eb; border-radius:8px; font-size:0.85rem; background:white; color:#374151; width:100%; box-sizing:border-box; font-family:inherit; }
@@ -531,7 +459,6 @@ export default function AdminPage() {
         .al-input-sm { padding:0.32rem 0.6rem; border:1px solid #e5e7eb; border-radius:7px; font-size:0.82rem; background:white; width:200px; font-family:inherit; }
         .al-input-sm:focus { outline:none; border-color:#4BACC6; }
 
-        /* Buttons */
         .btn-primary { padding:0.5rem 1.1rem; background:#243F60; color:white; border:none; border-radius:8px; font-size:0.85rem; font-weight:600; cursor:pointer; transition:background 0.15s; white-space:nowrap; font-family:inherit; }
         .btn-primary:hover { background:#365F91; }
         .btn-primary:disabled { opacity:0.55; cursor:not-allowed; }
@@ -543,12 +470,10 @@ export default function AdminPage() {
         .btn-icon:hover { background:#fef2f2; color:#dc2626; }
         .btn-icon:disabled { opacity:0.4; cursor:not-allowed; }
 
-        /* Search */
         .al-search { display:flex; align-items:center; gap:0.6rem; padding:0.75rem 1.1rem; border-bottom:1px solid #f3f4f6; background:#f9fafb; }
         .al-search input { flex:1; padding:0.45rem 0.75rem; border:1px solid #e5e7eb; border-radius:8px; font-size:0.85rem; background:white; font-family:inherit; }
         .al-search input:focus { outline:none; border-color:#4BACC6; }
 
-        /* Dept sections */
         .dept-header { display:flex; align-items:center; gap:0.75rem; padding:0.9rem 1.1rem; cursor:pointer; transition:background 0.12s; border-bottom:1px solid #f3f4f6; user-select:none; }
         .dept-header:hover { background:#f9fafb; }
         .dept-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
@@ -556,16 +481,13 @@ export default function AdminPage() {
         .dept-badge { font-size:0.72rem; font-weight:700; padding:0.18rem 0.55rem; border-radius:999px; }
         .dept-chevron { font-size:0.7rem; color:#9ca3af; transition:transform 0.18s; }
 
-        /* Add user form */
         .add-user-panel { border-bottom:1px solid #e5e7eb; background:#f8faff; padding:1.25rem 1.4rem; }
         .add-user-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:0.75rem; }
         .form-label { font-size:0.72rem; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em; display:block; margin-bottom:0.3rem; }
         .form-error { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.6rem 0.9rem; font-size:0.82rem; font-weight:500; margin-bottom:0.75rem; }
         .form-actions { display:flex; justify-content:flex-end; gap:0.6rem; }
-
         .pin-info-bar { display:flex; align-items:center; gap:0.6rem; padding:0.65rem 1.1rem; background:#EEF4FB; border-bottom:1px solid #C5D9F1; font-size:0.78rem; color:#365F91; font-weight:500; }
 
-        /* Posts */
         .post-filter-bar { display:flex; align-items:center; gap:0.6rem; padding:0.75rem 1.1rem; border-bottom:1px solid #f3f4f6; background:#f9fafb; flex-wrap:wrap; }
         .filter-chip { padding:0.3rem 0.75rem; border:1px solid #e5e7eb; border-radius:999px; font-size:0.78rem; font-weight:600; color:#6b7280; background:white; cursor:pointer; transition:all 0.12s; font-family:inherit; }
         .filter-chip:hover { border-color:#4BACC6; color:#243F60; }
@@ -575,7 +497,6 @@ export default function AdminPage() {
         .post-type-event { background:#F3EEF9; color:#8064A2; border:1px solid #D9CCF0; }
         .post-must-read { background:#FEF2F2; color:#C0504D; border:1px solid #F4BDBB; font-size:0.65rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:4px; text-transform:uppercase; letter-spacing:0.05em; }
 
-        /* Attendance */
         .att-date-bar { display:flex; align-items:center; gap:0.75rem; padding:0.9rem 1.1rem; border-bottom:1px solid #f3f4f6; background:#f9fafb; flex-wrap:wrap; }
         .att-nav-btn { width:32px; height:32px; display:flex; align-items:center; justify-content:center; background:white; border:1px solid #e5e7eb; border-radius:7px; cursor:pointer; font-size:0.85rem; transition:all 0.12s; }
         .att-nav-btn:hover { border-color:#4BACC6; color:#4BACC6; }
@@ -597,7 +518,6 @@ export default function AdminPage() {
         .checkbox-row { display:flex; align-items:center; gap:0.5rem; font-size:0.82rem; color:#374151; }
         .checkbox-row input { width:16px; height:16px; cursor:pointer; accent-color:#4BACC6; }
 
-        /* Timetable */
         .tt-week-bar { display:flex; align-items:center; gap:0.75rem; padding:0.9rem 1.1rem; border-bottom:1px solid #f3f4f6; background:#f9fafb; }
         .tt-week-label { font-size:0.9rem; font-weight:700; color:#1A2B3C; flex:1; }
         .tt-grid { display:grid; grid-template-columns:repeat(7,1fr); }
@@ -619,7 +539,6 @@ export default function AdminPage() {
         .add-sched-grid { display:grid; grid-template-columns:2fr 1fr 1fr 1fr 2fr; gap:0.75rem; align-items:end; margin-bottom:0.75rem; }
         .dept-add-row { display:flex; gap:0.6rem; padding:1rem 1.1rem; border-bottom:1px solid #f3f4f6; background:#f9fafb; }
 
-        /* SQL */
         .sql-panel { padding:1.25rem; display:flex; flex-direction:column; gap:1rem; }
         .sql-chips { display:flex; gap:0.4rem; flex-wrap:wrap; }
         .sql-chip { padding:0.28rem 0.65rem; background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; font-size:0.75rem; font-weight:600; color:#374151; cursor:pointer; transition:all 0.12s; font-family:inherit; }
@@ -660,13 +579,8 @@ export default function AdminPage() {
             <div key={gi} className="al-nav-group">
               <span className="al-nav-group-label">{group.label}</span>
               {group.tabs.map(t => (
-                <button
-                  key={t.id}
-                  className={`al-nav-btn${tab === t.id ? ' active' : ''}`}
-                  onClick={() => setTab(t.id)}
-                >
-                  <span className="al-nav-btn-icon">{t.icon}</span>
-                  {t.label}
+                <button key={t.id} className={`al-nav-btn${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>
+                  <span style={{ fontSize: '0.88rem' }}>{t.icon}</span>{t.label}
                 </button>
               ))}
             </div>
@@ -675,71 +589,35 @@ export default function AdminPage() {
 
         <div className="al-body">
 
-          {/* ════ OVERVIEW ════ */}
+          {/* OVERVIEW */}
           {tab === 'overview' && (
             <>
               <div className="al-panel-header">
-                <div>
-                  <h1 className="al-panel-title">Admin Overview</h1>
-                  <p className="al-panel-sub">System snapshot — InfoWall Enterprise Communication Platform</p>
-                </div>
+                <div><h1 className="al-panel-title">Admin Overview</h1><p className="al-panel-sub">System snapshot — InfoWall Enterprise</p></div>
               </div>
-
               <div className="overview-grid">
-                <div className="stat-card">
-                  <div className="stat-card-icon">👥</div>
-                  <div className="stat-card-val">{profiles.length}</div>
-                  <div className="stat-card-label">Total users</div>
-                  <div className="stat-card-sub">{departments.length} departments</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-card-icon">🔐</div>
-                  <div className="stat-card-val">{pinsSet}</div>
-                  <div className="stat-card-label">Kiosk PINs set</div>
-                  <div className="stat-card-sub">{profiles.length - pinsSet} still needed</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-card-icon">🕐</div>
-                  <div className="stat-card-val">{todayAtt}</div>
-                  <div className="stat-card-label">Clocked in today</div>
-                  <div className="stat-card-sub">{attendance.filter(a => !a.clock_out_at).length} still in</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-card-icon">📢</div>
-                  <div className="stat-card-val">{allPosts.length}</div>
-                  <div className="stat-card-label">Total posts</div>
-                  <div className="stat-card-sub">{mustReadPosts} must-read</div>
-                </div>
+                <div className="stat-card"><div className="stat-card-icon">👥</div><div className="stat-card-val">{profiles.length}</div><div className="stat-card-label">Total users</div><div className="stat-card-sub">{departments.length} departments</div></div>
+                <div className="stat-card"><div className="stat-card-icon">🔐</div><div className="stat-card-val">{pinsSet}</div><div className="stat-card-label">Kiosk PINs set</div><div className="stat-card-sub">{profiles.length - pinsSet} still needed</div></div>
+                <div className="stat-card"><div className="stat-card-icon">🕐</div><div className="stat-card-val">{attendance.length}</div><div className="stat-card-label">Clocked in today</div><div className="stat-card-sub">{attendance.filter(a => !a.clock_out_at).length} still in</div></div>
+                <div className="stat-card"><div className="stat-card-icon">📢</div><div className="stat-card-val">{allPosts.length}</div><div className="stat-card-label">Total posts</div><div className="stat-card-sub">{mustReadPosts} must-read</div></div>
               </div>
-
               <div className="overview-row">
-                {/* Role breakdown */}
                 <div className="al-card">
-                  <div className="al-section-title">
-                    Staff by role
-                    <a onClick={() => setTab('users')}>Manage users →</a>
-                  </div>
+                  <div className="al-section-title">Staff by role<a onClick={() => setTab('users')}>Manage →</a></div>
                   {roleCount.map(({ role, count }) => {
                     const colors: Record<string, string> = { admin: '#dc2626', hr: '#7c3aed', manager: '#1d4ed8', employee: '#16a34a' }
                     const pct = profiles.length > 0 ? (count / profiles.length) * 100 : 0
                     return (
                       <div key={role} className="role-bar-row">
                         <span className="role-bar-label">{role}</span>
-                        <div className="role-bar-track">
-                          <div className="role-bar-fill" style={{ width: `${pct}%`, background: colors[role] ?? '#9ca3af' }} />
-                        </div>
+                        <div className="role-bar-track"><div className="role-bar-fill" style={{ width: `${pct}%`, background: colors[role] ?? '#9ca3af' }} /></div>
                         <span className="role-bar-count">{count}</span>
                       </div>
                     )
                   })}
                 </div>
-
-                {/* Department breakdown */}
                 <div className="al-card">
-                  <div className="al-section-title">
-                    Staff by department
-                    <a onClick={() => setTab('departments')}>Manage →</a>
-                  </div>
+                  <div className="al-section-title">Staff by department<a onClick={() => setTab('departments')}>Manage →</a></div>
                   {departments.map((dept, i) => {
                     const count = profiles.filter(p => p.department_id === dept.id).length
                     const pal = DEPT_PALETTE[i % DEPT_PALETTE.length]
@@ -747,20 +625,13 @@ export default function AdminPage() {
                     return (
                       <div key={dept.id} className="role-bar-row">
                         <span className="role-bar-label" style={{ fontSize: '0.78rem' }}>{dept.name}</span>
-                        <div className="role-bar-track">
-                          <div className="role-bar-fill" style={{ width: `${pct}%`, background: pal.accent }} />
-                        </div>
+                        <div className="role-bar-track"><div className="role-bar-fill" style={{ width: `${pct}%`, background: pal.accent }} /></div>
                         <span className="role-bar-count">{count}</span>
                       </div>
                     )
                   })}
-                  {departments.length === 0 && (
-                    <div style={{ padding: '1.5rem', color: '#9ca3af', fontSize: '0.85rem', textAlign: 'center' }}>No departments yet.</div>
-                  )}
                 </div>
               </div>
-
-              {/* Quick actions */}
               <div className="al-card">
                 <div className="al-section-title">Quick actions</div>
                 <div style={{ display: 'flex', gap: '0.75rem', padding: '1rem 1.1rem', flexWrap: 'wrap' }}>
@@ -772,22 +643,16 @@ export default function AdminPage() {
                     { icon: '🛠', label: 'SQL Console', action: () => setTab('sql') },
                     { icon: '🖥️', label: 'View kiosk', action: () => navigate('/kiosk') },
                   ].map(qa => (
-                    <button key={qa.label} onClick={qa.action} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.1rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', font: 'inherit', fontSize: '0.85rem', fontWeight: 600, color: '#374151', cursor: 'pointer', transition: 'all 0.12s' }}
+                    <button key={qa.label} onClick={qa.action}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.1rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', font: 'inherit', fontSize: '0.85rem', fontWeight: 600, color: '#374151', cursor: 'pointer', transition: 'all 0.12s' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#4BACC6'; (e.currentTarget as HTMLElement).style.color = '#243F60' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb'; (e.currentTarget as HTMLElement).style.color = '#374151' }}
-                    >
-                      <span>{qa.icon}</span>{qa.label}
-                    </button>
+                    ><span>{qa.icon}</span>{qa.label}</button>
                   ))}
                 </div>
               </div>
-
-              {/* Recent audit */}
               <div className="al-card">
-                <div className="al-section-title">
-                  Recent activity
-                  <a onClick={() => setTab('audit')}>View all →</a>
-                </div>
+                <div className="al-section-title">Recent activity<a onClick={() => setTab('audit')}>View all →</a></div>
                 <table className="al-table">
                   <thead><tr><th>Action</th><th>Performed by</th><th>When</th></tr></thead>
                   <tbody>
@@ -805,16 +670,13 @@ export default function AdminPage() {
             </>
           )}
 
-          {/* ════ USERS ════ */}
+          {/* USERS */}
           {tab === 'users' && (
             <>
               <div className="al-panel-header">
                 <div><h1 className="al-panel-title">User Management</h1><p className="al-panel-sub">{profiles.length} users · {pinsSet} kiosk PINs assigned</p></div>
-                <button className="btn-primary" onClick={() => { setShowAddUser(o => !o); setAddUserError(null) }}>
-                  {showAddUser ? '✕ Cancel' : '+ Add user'}
-                </button>
+                <button className="btn-primary" onClick={() => { setShowAddUser(o => !o); setAddUserError(null) }}>{showAddUser ? '✕ Cancel' : '+ Add user'}</button>
               </div>
-
               <div className="al-card">
                 {showAddUser && (
                   <div className="add-user-panel">
@@ -833,16 +695,11 @@ export default function AdminPage() {
                     </div>
                   </div>
                 )}
-
-                <div className="pin-info-bar">
-                  🔐 Kiosk PINs allow staff to clock in at <strong>/kiosk</strong> without logging in. Set a 4-digit PIN per employee.
-                </div>
-
+                <div className="pin-info-bar">🔐 Kiosk PINs allow staff to clock in at <strong>/kiosk</strong> without logging in. Set a 4-digit PIN per employee.</div>
                 <div className="al-search">
                   <input placeholder="Search users by name…" value={userSearch} onChange={e => setUserSearch(e.target.value)} />
                   {userSearch && <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }} onClick={() => setUserSearch('')}>✕</button>}
                 </div>
-
                 {profilesByDept.map(({ dept, palette, members }, idx) => {
                   const open = expandedDepts.has(dept.id)
                   return (
@@ -857,7 +714,6 @@ export default function AdminPage() {
                     </div>
                   )
                 })}
-
                 {unassigned.length > 0 && (
                   <div>
                     <div className="dept-header" onClick={() => toggleDept('__unassigned__')}>
@@ -873,12 +729,10 @@ export default function AdminPage() {
             </>
           )}
 
-          {/* ════ DEPARTMENTS ════ */}
+          {/* DEPARTMENTS */}
           {tab === 'departments' && (
             <>
-              <div className="al-panel-header">
-                <div><h1 className="al-panel-title">Departments</h1><p className="al-panel-sub">{departments.length} departments configured</p></div>
-              </div>
+              <div className="al-panel-header"><div><h1 className="al-panel-title">Departments</h1><p className="al-panel-sub">{departments.length} departments configured</p></div></div>
               <div className="al-card">
                 <div className="dept-add-row">
                   <input className="al-input" style={{ flex: 1 }} placeholder="New department name…" value={newDeptName} onChange={e => setNewDeptName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDepartment()} />
@@ -906,14 +760,13 @@ export default function AdminPage() {
             </>
           )}
 
-          {/* ════ POSTS ════ */}
+          {/* POSTS */}
           {tab === 'posts' && (
             <>
               <div className="al-panel-header">
                 <div><h1 className="al-panel-title">Post Management</h1><p className="al-panel-sub">{allPosts.length} total posts · {mustReadPosts} must-read</p></div>
                 <button className="btn-primary" onClick={() => navigate('/create-post')}>✏️ Create post</button>
               </div>
-
               <div className="al-card">
                 <div className="post-filter-bar">
                   <input className="al-input" style={{ maxWidth: 280, flex: 1 }} placeholder="🔍 Search posts…" value={postSearch} onChange={e => setPostSearch(e.target.value)} />
@@ -922,48 +775,26 @@ export default function AdminPage() {
                       {f === 'all' ? 'All' : f === 'announcement' ? '📢 Announcements' : '📅 Events'}
                     </button>
                   ))}
-                  {(postSearch || postTypeFilter !== 'all') && (
-                    <span style={{ fontSize: '0.78rem', color: '#9ca3af', marginLeft: 'auto' }}>{filteredPosts.length} result{filteredPosts.length !== 1 ? 's' : ''}</span>
-                  )}
                 </div>
-
                 <div className="al-table-wrap">
                   <table className="al-table">
-                    <thead>
-                      <tr><th>Title</th><th>Author</th><th>Type</th><th>Audience</th><th>Created</th><th style={{ width: 60 }}></th></tr>
-                    </thead>
+                    <thead><tr><th>Title</th><th>Author</th><th>Audience</th><th>Created</th><th style={{ width: 60 }}></th></tr></thead>
                     <tbody>
                       {filteredPosts.length === 0 ? (
-                        <tr className="empty-row"><td colSpan={6}>No posts found.</td></tr>
+                        <tr className="empty-row"><td colSpan={5}>No posts found.</td></tr>
                       ) : filteredPosts.map(post => (
                         <tr key={post.id}>
                           <td>
-                            <div style={{ fontWeight: 600, color: '#1A2B3C', marginBottom: '0.2rem', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {post.title}
-                            </div>
-                            <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                              <span className={post.post_type === 'announcement' ? 'post-type-badge post-type-ann' : 'post-type-badge post-type-event'}>
-                                {post.post_type === 'announcement' ? 'Announcement' : 'Event'}
-                              </span>
+                            <div style={{ fontWeight: 600, color: '#1A2B3C', marginBottom: '0.2rem', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{post.title}</div>
+                            <div style={{ display: 'flex', gap: '0.3rem' }}>
+                              <span className={post.post_type === 'announcement' ? 'post-type-badge post-type-ann' : 'post-type-badge post-type-event'}>{post.post_type === 'announcement' ? 'Announcement' : 'Event'}</span>
                               {post.must_read && <span className="post-must-read">Must-read</span>}
                             </div>
                           </td>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <Avatar name={post.author?.full_name ?? null} size={24} />
-                              <span style={{ fontSize: '0.82rem' }}>{post.author?.full_name ?? '—'}</span>
-                            </div>
-                          </td>
-                          <td><span className={post.post_type === 'announcement' ? 'post-type-badge post-type-ann' : 'post-type-badge post-type-event'}>{post.post_type === 'announcement' ? 'Announcement' : 'Event'}</span></td>
-                          <td style={{ fontSize: '0.78rem', color: '#6b7280' }}>
-                            {post.recipient_id ? 'Personal' : post.department_id ? departments.find(d => d.id === post.department_id)?.name ?? 'Dept' : 'Global'}
-                          </td>
+                          <td><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Avatar name={post.author?.full_name ?? null} size={24} /><span style={{ fontSize: '0.82rem' }}>{post.author?.full_name ?? '—'}</span></div></td>
+                          <td style={{ fontSize: '0.78rem', color: '#6b7280' }}>{post.recipient_id ? 'Personal' : post.department_id ? departments.find(d => d.id === post.department_id)?.name ?? 'Dept' : 'Global'}</td>
                           <td style={{ fontSize: '0.78rem', color: '#9ca3af', whiteSpace: 'nowrap' }}>{timeAgo(post.created_at)}</td>
-                          <td>
-                            <button className="btn-icon" onClick={() => handleDeletePost(post.id)} disabled={deletingPostId === post.id} title="Delete post">
-                              {deletingPostId === post.id ? '…' : '🗑'}
-                            </button>
-                          </td>
+                          <td><button className="btn-icon" onClick={() => handleDeletePost(post.id)} disabled={deletingPostId === post.id} title="Delete post">{deletingPostId === post.id ? '…' : '🗑'}</button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -973,14 +804,12 @@ export default function AdminPage() {
             </>
           )}
 
-          {/* ════ ATTENDANCE ════ */}
+          {/* ATTENDANCE */}
           {tab === 'attendance' && (
             <>
               <div className="al-panel-header">
                 <div><h1 className="al-panel-title">Attendance</h1><p className="al-panel-sub">Clock-in and clock-out records by date</p></div>
-                <button className="btn-primary" onClick={() => { setShowManualAtt(o => !o); setManualAttError(null) }}>
-                  {showManualAtt ? '✕ Cancel' : '+ Manual entry'}
-                </button>
+                <button className="btn-primary" onClick={() => { setShowManualAtt(o => !o); setManualAttError(null) }}>{showManualAtt ? '✕ Cancel' : '+ Manual entry'}</button>
               </div>
               <div className="al-card">
                 <div className="att-date-bar">
@@ -992,13 +821,11 @@ export default function AdminPage() {
                   <input type="date" value={attendanceDate} onChange={e => setAttendanceDate(e.target.value)} style={{ padding: '0.35rem 0.6rem', border: '1px solid #e5e7eb', borderRadius: '7px', fontSize: '0.82rem', fontFamily: 'inherit' }} />
                   <button className="att-today-btn" onClick={() => setAttendanceDate(todayStr)}>Today</button>
                 </div>
-
                 <div className="att-summary-cards">
                   <div className="att-summary-card"><div className="att-summary-value" style={{ color: '#4BACC6' }}>{attendance.length}</div><div className="att-summary-label">Clocked in</div></div>
                   <div className="att-summary-card"><div className="att-summary-value" style={{ color: '#16a34a' }}>{attendance.filter(a => a.clock_out_at).length}</div><div className="att-summary-label">Clocked out</div></div>
                   <div className="att-summary-card"><div className="att-summary-value" style={{ color: '#f59e0b' }}>{attendance.filter(a => !a.clock_out_at).length}</div><div className="att-summary-label">Still in</div></div>
                 </div>
-
                 {showManualAtt && (
                   <div className="manual-att-panel">
                     <p style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1A2B3C', margin: '0 0 0.85rem' }}>Manual attendance entry</p>
@@ -1010,10 +837,7 @@ export default function AdminPage() {
                       <div>
                         <label className="form-label">Clock out</label>
                         <input type="time" className="al-input" value={manualAtt.clock_out} onChange={e => setManualAtt(p => ({ ...p, clock_out: e.target.value }))} disabled={!manualAtt.include_clock_out} style={{ opacity: manualAtt.include_clock_out ? 1 : 0.4 }} />
-                        <label className="checkbox-row" style={{ marginTop: '0.4rem' }}>
-                          <input type="checkbox" checked={manualAtt.include_clock_out} onChange={e => setManualAtt(p => ({ ...p, include_clock_out: e.target.checked }))} />
-                          Include clock out
-                        </label>
+                        <label className="checkbox-row" style={{ marginTop: '0.4rem' }}><input type="checkbox" checked={manualAtt.include_clock_out} onChange={e => setManualAtt(p => ({ ...p, include_clock_out: e.target.checked }))} />Include clock out</label>
                       </div>
                     </div>
                     <div className="form-actions">
@@ -1022,7 +846,6 @@ export default function AdminPage() {
                     </div>
                   </div>
                 )}
-
                 {attendance.length === 0 && !showManualAtt ? (
                   <div style={{ padding: '2.5rem', textAlign: 'center', color: '#9ca3af' }}>No attendance records for {fmtDateDisplay(attendanceDate)}.</div>
                 ) : (
@@ -1078,14 +901,12 @@ export default function AdminPage() {
             </>
           )}
 
-          {/* ════ TIMETABLE ════ */}
+          {/* TIMETABLE */}
           {tab === 'timetable' && (
             <>
               <div className="al-panel-header">
                 <div><h1 className="al-panel-title">Timetable</h1><p className="al-panel-sub">Weekly schedule — {schedules.length} shifts this week</p></div>
-                <button className="btn-primary" onClick={() => { setShowAddSched(o => !o); setSchedError(null) }}>
-                  {showAddSched ? '✕ Cancel' : '+ Add shift'}
-                </button>
+                <button className="btn-primary" onClick={() => { setShowAddSched(o => !o); setSchedError(null) }}>{showAddSched ? '✕ Cancel' : '+ Add shift'}</button>
               </div>
               <div className="al-card">
                 <div className="tt-week-bar">
@@ -1094,7 +915,6 @@ export default function AdminPage() {
                   <button className="att-nav-btn" onClick={() => setWeekStart(w => addDays(w, 7))}>→</button>
                   <button className="att-today-btn" onClick={() => setWeekStart(getMonday(new Date()))}>This week</button>
                 </div>
-
                 {showAddSched && (
                   <div className="add-sched-panel">
                     <p style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1A2B3C', margin: '0 0 0.85rem' }}>Add scheduled shift</p>
@@ -1112,7 +932,6 @@ export default function AdminPage() {
                     </div>
                   </div>
                 )}
-
                 <div className="tt-grid">
                   {weekDays.map((day, i) => {
                     const dayStr = fmtDate(day)
@@ -1146,7 +965,7 @@ export default function AdminPage() {
             </>
           )}
 
-          {/* ════ AUDIT ════ */}
+          {/* AUDIT */}
           {tab === 'audit' && (
             <>
               <div className="al-panel-header"><div><h1 className="al-panel-title">Audit Log</h1><p className="al-panel-sub">Last 50 system events</p></div></div>
@@ -1171,7 +990,7 @@ export default function AdminPage() {
             </>
           )}
 
-          {/* ════ SQL ════ */}
+          {/* SQL */}
           {tab === 'sql' && (
             <>
               <div className="al-panel-header"><div><h1 className="al-panel-title">SQL Console</h1><p className="al-panel-sub">Admin-only — direct database access</p></div></div>

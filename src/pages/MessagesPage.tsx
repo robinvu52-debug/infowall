@@ -69,7 +69,6 @@ export default function MessagesPage() {
   const globalChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  // Refs to avoid stale closures in realtime callbacks
   const conversationsRef = useRef<Conversation[]>([])
   const activeConvIdRef = useRef<string | null>(null)
   const userIdRef = useRef<string | null>(null)
@@ -80,7 +79,6 @@ export default function MessagesPage() {
 
   const activeConv = conversations.find(c => c.id === activeConvId) ?? null
 
-  // ── Initial load ──
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
@@ -91,12 +89,13 @@ export default function MessagesPage() {
       const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       setProfile(p)
 
-      const convs = await loadConversations(user.id)
+      await loadConversations(user.id)
+
       const { data: ps } = await supabase.from('profiles').select('*').order('full_name')
       setAllProfiles((ps ?? []).filter(pr => pr.id !== user.id))
       setLoading(false)
 
-      if (targetUserId) await openConversationWith(user.id, targetUserId, convs)
+      if (targetUserId) await openConversationWith(user.id, targetUserId)
     }
     load()
 
@@ -106,7 +105,6 @@ export default function MessagesPage() {
     }
   }, [navigate, targetUserId])
 
-  // ── Global realtime: new messages across ALL conversations ──
   useEffect(() => {
     if (!userId) return
     if (globalChannelRef.current) supabase.removeChannel(globalChannelRef.current)
@@ -121,14 +119,12 @@ export default function MessagesPage() {
         const convs = conversationsRef.current
         const activeId = activeConvIdRef.current
 
-        // Only process messages for our conversations
         const conv = convs.find(c => c.id === newMsg.conversation_id)
         if (!conv) return
 
         const isMine = newMsg.sender_id === uid
         const isActive = newMsg.conversation_id === activeId
 
-        // Update conversation list — preview + unread count + re-sort
         setConversations(prev => {
           const updated = prev.map(c => {
             if (c.id !== newMsg.conversation_id) return c
@@ -145,15 +141,11 @@ export default function MessagesPage() {
           })
         })
 
-        // If not mine and it's the active conversation, add to message list
-        // (own messages already added optimistically in sendMessage)
         if (!isMine && isActive) {
           setMessages(prev => prev.find(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
-          // Mark as read immediately
           supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('id', newMsg.id).then(() => {})
         }
       })
-      // ── New conversation created ──
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'conversations',
       }, async (payload) => {
@@ -162,18 +154,13 @@ export default function MessagesPage() {
         const conv = payload.new as { id: string; user1_id: string; user2_id: string; created_at: string }
         if (conv.user1_id !== uid && conv.user2_id !== uid) return
 
-        // Load the new conversation and add it to the list
         const otherUserId = conv.user1_id === uid ? conv.user2_id : conv.user1_id
         const { data: otherUser } = await supabase.from('profiles').select('*').eq('id', otherUserId).single()
 
         const newConv: Conversation = {
-          id: conv.id,
-          user1_id: conv.user1_id,
-          user2_id: conv.user2_id,
-          created_at: conv.created_at,
-          otherUser: otherUser as Profile,
-          lastMessage: null,
-          unreadCount: 0,
+          id: conv.id, user1_id: conv.user1_id, user2_id: conv.user2_id,
+          created_at: conv.created_at, otherUser: otherUser as Profile,
+          lastMessage: null, unreadCount: 0,
         }
 
         setConversations(prev => {
@@ -186,7 +173,6 @@ export default function MessagesPage() {
     return () => { if (globalChannelRef.current) supabase.removeChannel(globalChannelRef.current) }
   }, [userId])
 
-  // ── Per-conversation channel (active chat only) ──
   useEffect(() => {
     if (!activeConvId) return
     if (activeConvChannelRef.current) supabase.removeChannel(activeConvChannelRef.current)
@@ -199,7 +185,6 @@ export default function MessagesPage() {
       }, (payload) => {
         const newMsg = payload.new as Message
         const uid = userIdRef.current
-        // Global channel handles non-mine messages — this handles any edge cases
         if (newMsg.sender_id === uid) return
         setMessages(prev => prev.find(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
       })
@@ -208,7 +193,6 @@ export default function MessagesPage() {
     return () => { if (activeConvChannelRef.current) supabase.removeChannel(activeConvChannelRef.current) }
   }, [activeConvId])
 
-  // ── Scroll to bottom ──
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -216,11 +200,9 @@ export default function MessagesPage() {
   async function loadConversations(uid: string): Promise<Conversation[]> {
     const { data: convs } = await supabase
       .from('conversations')
-      .select(`
-        *,
+      .select(`*,
         user1:profiles!conversations_user1_id_fkey(id,full_name,role,department_id),
-        user2:profiles!conversations_user2_id_fkey(id,full_name,role,department_id)
-      `)
+        user2:profiles!conversations_user2_id_fkey(id,full_name,role,department_id)`)
       .or(`user1_id.eq.${uid},user2_id.eq.${uid}`)
       .order('created_at', { ascending: false })
 
@@ -230,12 +212,9 @@ export default function MessagesPage() {
       const otherUser = c.user1_id === uid ? c.user2 : c.user1
       const { data: lastMsgs } = await supabase.from('messages').select('*').eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(1)
       const { count: unread } = await supabase.from('messages').select('id', { count: 'exact', head: true }).eq('conversation_id', c.id).neq('sender_id', uid).is('read_at', null)
-
       return {
         id: c.id, user1_id: c.user1_id, user2_id: c.user2_id, created_at: c.created_at,
-        otherUser: otherUser as Profile,
-        lastMessage: lastMsgs?.[0] ?? null,
-        unreadCount: unread ?? 0,
+        otherUser: otherUser as Profile, lastMessage: lastMsgs?.[0] ?? null, unreadCount: unread ?? 0,
       }
     }))
 
@@ -259,14 +238,12 @@ export default function MessagesPage() {
     setMessages(msgs ?? [])
     setLoadingMessages(false)
 
-    // Mark all unread as read
     await supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('conversation_id', convId).neq('sender_id', userId!).is('read_at', null)
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, unreadCount: 0 } : c))
-
     setTimeout(() => inputRef.current?.focus(), 100)
   }
 
-  async function openConversationWith(currentUserId: string, otherUserId: string, convs?: Conversation[]) {
+  async function openConversationWith(currentUserId: string, otherUserId: string) {
     const sorted = [currentUserId, otherUserId].sort()
     const user1_id = sorted[0]; const user2_id = sorted[1]
 
@@ -297,7 +274,6 @@ export default function MessagesPage() {
     const { data: msg } = await supabase.from('messages').insert({ conversation_id: activeConvId, sender_id: userId, content }).select().single()
 
     if (msg) {
-      // Optimistic: add own message immediately
       setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
       setConversations(prev => prev.map(c => c.id === activeConvId ? { ...c, lastMessage: msg } : c)
         .sort((a, b) => {
@@ -345,7 +321,6 @@ export default function MessagesPage() {
         .msg-page { display:flex;flex-direction:column;height:100vh;font-family:'Nunito','Segoe UI',system-ui,sans-serif;overflow:hidden; }
         .msg-shell { display:flex;flex:1;min-height:0;overflow:hidden; }
 
-        /* Conv panel */
         .conv-panel { width:300px;flex-shrink:0;display:flex;flex-direction:column;background:white;border-right:1px solid #E2E6EA;height:100%;overflow:hidden; }
         .conv-header { padding:1rem 1.1rem 0.75rem;border-bottom:1px solid #E2E6EA;flex-shrink:0; }
         .conv-header-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem; }
@@ -366,23 +341,15 @@ export default function MessagesPage() {
         .conv-item.active { background:#EEF4FB; }
         .conv-item.has-unread .conv-item-name { font-weight:800; }
         .conv-item.has-unread .conv-item-preview { color:#374151;font-weight:600; }
-
         .conv-item-info { flex:1;min-width:0; }
         .conv-item-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0.15rem; }
         .conv-item-name { font-size:0.88rem;font-weight:600;color:#1A2B3C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
         .conv-item-time { font-size:0.68rem;color:#9CA3AF;flex-shrink:0;margin-left:0.4rem; }
         .conv-item-preview { font-size:0.78rem;color:#7A8899;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
         .conv-unread-badge { min-width:18px;height:18px;border-radius:9px;background:#365F91;color:white;font-size:0.62rem;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px;flex-shrink:0; }
-
         .conv-empty { flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#9CA3AF;font-size:0.85rem;gap:0.5rem;padding:2rem;text-align:center; }
 
-        /* Online indicator */
-        .conv-avatar-wrap { position:relative; }
-        .online-dot { position:absolute;bottom:1px;right:1px;width:9px;height:9px;border-radius:50%;background:#9BBB59;border:2px solid white; }
-
-        /* Chat area */
         .chat-area { flex:1;display:flex;flex-direction:column;min-width:0;background:#F8F9FA;overflow:hidden; }
-
         .chat-header { display:flex;align-items:center;gap:0.85rem;padding:0.85rem 1.5rem;background:white;border-bottom:1px solid #E2E6EA;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,0.04); }
         .chat-header-name { font-size:1rem;font-weight:800;color:#1A2B3C; }
         .chat-header-sub { font-size:0.75rem;color:#9CA3AF;text-transform:capitalize; }
@@ -400,33 +367,20 @@ export default function MessagesPage() {
 
         .msg-row { display:flex;gap:0.6rem;padding:0.15rem 0;animation:msgIn 0.2s ease both; }
         .msg-row.mine { flex-direction:row-reverse; }
-
         .msg-avatar-col { width:30px;flex-shrink:0;display:flex;align-items:flex-end;padding-bottom:1.5rem; }
         .msg-avatar-spacer { width:30px;flex-shrink:0; }
-
         .msg-content-col { display:flex;flex-direction:column;max-width:68%; }
         .msg-row.mine .msg-content-col { align-items:flex-end; }
-
         .msg-sender-name { font-size:0.72rem;font-weight:700;color:#4A5568;margin-bottom:0.18rem;padding:0 0.5rem; }
-
         .msg-bubble { padding:0.6rem 0.95rem;font-size:0.9rem;line-height:1.55;word-break:break-word;white-space:pre-wrap;border-radius:4px 18px 18px 18px;background:white;color:#1A2B3C;border:1px solid #E2E6EA;box-shadow:0 1px 2px rgba(0,0,0,0.05); }
         .msg-row.mine .msg-bubble { background:#365F91;color:white;border:none;border-radius:18px 4px 18px 18px;box-shadow:0 2px 6px rgba(54,95,145,0.3); }
-
         .msg-time { font-size:0.65rem;color:#9CA3AF;margin-top:0.2rem;padding:0 0.5rem; }
-
-        /* Typing indicator */
-        .typing-row { display:flex;gap:0.6rem;padding:0.35rem 0;align-items:center; }
-        .typing-dots { display:flex;gap:3px;padding:0.5rem 0.75rem;background:white;border:1px solid #E2E6EA;border-radius:4px 18px 18px 18px; }
-        .typing-dot { width:6px;height:6px;border-radius:50%;background:#9CA3AF;animation:pulse 1.2s ease-in-out infinite; }
-        .typing-dot:nth-child(2){animation-delay:0.2s}
-        .typing-dot:nth-child(3){animation-delay:0.4s}
 
         .chat-input-area { padding:0.85rem 1.5rem;background:white;border-top:1px solid #E2E6EA;flex-shrink:0; }
         .chat-input-wrap { display:flex;align-items:flex-end;gap:0.65rem;background:#F2F4F7;border:1.5px solid #E2E6EA;border-radius:12px;padding:0.5rem 0.65rem;transition:border-color 0.15s; }
         .chat-input-wrap:focus-within { border-color:#4F81BD;background:white;box-shadow:0 0 0 3px rgba(79,129,189,0.08); }
         .chat-input-wrap textarea { flex:1;background:transparent;border:none;outline:none;font-size:0.9rem;color:#1A2B3C;font-family:inherit;resize:none;max-height:120px;min-height:22px;line-height:1.5;padding:0.2rem 0; }
         .chat-input-wrap textarea::placeholder { color:#9CA3AF; }
-
         .send-btn { width:34px;height:34px;border-radius:8px;flex-shrink:0;background:#365F91;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;color:white;font-size:0.9rem; }
         .send-btn:hover:not(:disabled) { background:#243F60; }
         .send-btn:disabled { opacity:0.35;cursor:not-allowed; }
@@ -439,7 +393,6 @@ export default function MessagesPage() {
         .chat-empty-btn { padding:0.65rem 1.5rem;background:#365F91;color:white;border:none;border-radius:9px;font-size:0.88rem;font-weight:700;cursor:pointer;transition:background 0.15s;font-family:inherit;margin-top:0.5rem; }
         .chat-empty-btn:hover { background:#243F60; }
 
-        /* New chat modal */
         .new-chat-overlay { position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.3);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;animation:fadeIn 0.15s ease; }
         .new-chat-modal { background:white;border-radius:16px;width:460px;max-width:calc(100vw - 2rem);box-shadow:0 20px 60px rgba(0,0,0,0.15);animation:slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1);overflow:hidden;display:flex;flex-direction:column;max-height:80vh; }
         .new-chat-header { display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid #E2E6EA;flex-shrink:0; }
@@ -470,8 +423,6 @@ export default function MessagesPage() {
         <Navbar fullName={profile?.full_name ?? null} role={profile?.role ?? 'employee'} />
 
         <div className="msg-shell">
-
-          {/* Conversations */}
           <div className="conv-panel">
             <div className="conv-header">
               <div className="conv-header-top">
@@ -500,9 +451,7 @@ export default function MessagesPage() {
                   className={`conv-item${activeConvId === conv.id ? ' active' : ''}${conv.unreadCount > 0 ? ' has-unread' : ''}`}
                   onClick={() => openConversation(conv.id)}
                 >
-                  <div className="conv-avatar-wrap">
-                    <Avatar name={conv.otherUser?.full_name ?? null} size={38} />
-                  </div>
+                  <Avatar name={conv.otherUser?.full_name ?? null} size={38} />
                   <div className="conv-item-info">
                     <div className="conv-item-top">
                       <span className="conv-item-name">{conv.otherUser?.full_name ?? 'Unknown'}</span>
@@ -520,7 +469,6 @@ export default function MessagesPage() {
             </div>
           </div>
 
-          {/* Chat */}
           <div className="chat-area">
             {activeConv ? (
               <>
@@ -609,7 +557,6 @@ export default function MessagesPage() {
           </div>
         </div>
 
-        {/* New chat modal */}
         {showNewChat && (
           <div className="new-chat-overlay" onClick={() => setShowNewChat(false)}>
             <div className="new-chat-modal" onClick={e => e.stopPropagation()}>
