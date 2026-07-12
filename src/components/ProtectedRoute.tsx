@@ -1,29 +1,57 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 interface Props {
   children: React.ReactNode
-  allowedRoles?: string[]
+  roles?: string[]
 }
 
-export default function ProtectedRoute({ children, allowedRoles }: Props) {
-  const navigate = useNavigate()
-  const [ok, setOk] = useState(false)
+export default function ProtectedRoute({ children, roles }: Props) {
+  const [loading, setLoading] = useState(true)
+  const [authed, setAuthed] = useState(false)
+  const [roleOk, setRoleOk] = useState(false)
 
   useEffect(() => {
     async function check() {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { navigate('/login'); return }
-      if (allowedRoles) {
-        const { data: p } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-        if (!p || !allowedRoles.includes(p.role)) { navigate('/dashboard'); return }
+      if (!user) { setLoading(false); return }
+
+      setAuthed(true)
+
+      if (!roles || roles.length === 0) {
+        setRoleOk(true)
+        setLoading(false)
+        return
       }
-      setOk(true)
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (profile && roles.includes(profile.role)) {
+        setRoleOk(true)
+      }
+
+      setLoading(false)
     }
     check()
-  }, [navigate])
+  }, [])
 
-  if (!ok) return null
+  if (loading) return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      height: '100vh', fontFamily: 'Nunito, sans-serif', color: '#6b7280',
+      background: 'var(--bg-page)',
+    }}>
+      Loading…
+    </div>
+  )
+
+  if (!authed) return <Navigate to="/login" replace />
+  if (!roleOk) return <Navigate to="/dashboard" replace />
+
   return <>{children}</>
 }
