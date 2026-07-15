@@ -26,6 +26,8 @@ function timeAgo(d: string): string {
 const NAV_LINKS = (role: string) => [
   { path: '/dashboard',   label: 'Dashboard',   icon: '⊞',  show: true },
   { path: '/feed',        label: 'News Feed',   icon: '◎',  show: true },
+  { path: '/channels',  label: 'Channels',   icon: '#', show: true },
+  { path: '/directory',   label: 'Directory',   icon: '👥', show: true },
   { path: '/messages',    label: 'Messages',    icon: '✉',  show: true },
   { path: '/create-post', label: 'Create Post', icon: '✦',  show: ['hr', 'manager', 'admin'].includes(role) },
   { path: '/admin',       label: 'Admin',       icon: '⚙',  show: role === 'admin' },
@@ -263,6 +265,21 @@ export default function Navbar({ fullName, role }: NavbarProps) {
         .mob-signout { width:100%;padding:0.72rem 0.85rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:9px;color:rgba(255,255,255,0.65);font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:0.5rem; }
         .mob-signout:hover { background:rgba(192,80,77,0.12);border-color:rgba(192,80,77,0.3);color:#fca5a5; }
 
+        .nav-settings-btn {
+          width:34px;height:34px;border-radius:50%;
+          background:rgba(255,255,255,0.06);
+          border:1px solid rgba(255,255,255,0.1);
+          display:flex;align-items:center;justify-content:center;
+          cursor:pointer;font-size:0.88rem;color:rgba(255,255,255,0.5);
+          transition:all 0.18s;flex-shrink:0;
+        }
+        .nav-settings-btn:hover {
+          background:rgba(255,255,255,0.12);
+          border-color:rgba(255,255,255,0.2);
+          color:rgba(255,255,255,0.9);
+          transform:rotate(45deg);
+        }
+
         @media(max-width:1200px) {
           .nav-search-btn { min-width:140px; }
           .nav-search-label { display:none; }
@@ -364,15 +381,18 @@ export default function Navbar({ fullName, role }: NavbarProps) {
               )}
             </div>
 
-            <div className="nav-avatar-wrap">
-              <div className="nav-avatar" onClick={() => currentUserId && goTo(`/profile/${currentUserId}`)}>
+            <div className="nav-avatar-wrap" style={{ position:'relative' }}>
+              <div
+                className="nav-avatar"
+                onClick={() => currentUserId && goTo(`/profile/${currentUserId}`)}
+              >
                 {getInitials(fullName)}
               </div>
               <div className="nav-avatar-tooltip">My profile</div>
             </div>
 
-            <button className="nav-signout" onClick={handleSignOut}>
-              <span style={{ fontSize: '0.78rem' }}>⏻</span>Sign out
+            <button className="nav-settings-btn" onClick={() => goTo('/settings')} title="Settings">
+              ⚙
             </button>
           </div>
 

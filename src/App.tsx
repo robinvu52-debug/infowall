@@ -6,10 +6,13 @@ import WelcomePage from './pages/WelcomePage'
 import DashboardPage from './pages/DashboardPage'
 import NewsFeedPage from './pages/NewsFeedPage'
 import MessagesPage from './pages/MessagesPage'
+import ChannelsPage from './pages/ChannelsPage'
 import CreatePostPage from './pages/CreatePostPage'
 import AdminPage from './pages/AdminPage'
 import ProfilePage from './pages/ProfilePage'
 import KioskPage from './pages/KioskPage'
+import EmployeeDirectoryPage from './pages/EmployeeDirectoryPage'
+import SettingsPage from './pages/SettingsPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
@@ -23,9 +26,13 @@ export default function App() {
           <Route path="/welcome" element={<ProtectedRoute><WelcomePage /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
           <Route path="/feed" element={<ProtectedRoute><NewsFeedPage /></ProtectedRoute>} />
+          <Route path="/channels" element={<ProtectedRoute><ChannelsPage /></ProtectedRoute>} />
+          <Route path="/channels/:channelId" element={<ProtectedRoute><ChannelsPage /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
           <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
+          <Route path="/directory" element={<ProtectedRoute><EmployeeDirectoryPage /></ProtectedRoute>} />
           <Route path="/profile/:id" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/create-post" element={<ProtectedRoute roles={['hr','manager','admin']}><CreatePostPage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminPage /></ProtectedRoute>} />
         </Routes>
