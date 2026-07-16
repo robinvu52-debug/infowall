@@ -10,7 +10,7 @@ interface DmMessage { id:string; conversation_id:string; sender_id:string; conte
 interface GroupConversation { id:string; name:string; created_by:string|null; created_at:string; members:Profile[]; lastMessage:GroupMessage|null; unreadCount:number }
 interface GroupMessage { id:string; group_id:string; sender_id:string; content:string; created_at:string; is_pinned?:boolean; attachment_url?:string|null; attachment_name?:string|null; attachment_type?:string|null; sender?:Profile|null }
 interface MessageReaction { id:string; message_id:string; user_id:string; emoji:string }
-interface CallRecord { id:string; room_name:string; caller_id:string; caller_name:string|null; type:'audio'|'video'; status:string; created_at:string; ended_at:string|null; conversation_id:string|null; group_id:string|null; group_name:string|null }
+interface CallRecord { id:string; room_name:string; caller_id:string; caller_name:string|null; callee_id:string|null; type:'audio'|'video'; status:string; created_at:string; ended_at:string|null; conversation_id:string|null; group_id:string|null; group_name:string|null }
 interface IncomingCall { id:string; callerName:string; type:'audio'|'video'; roomName:string; conversationId?:string; groupId?:string }
 type ActiveChat = {type:'dm';id:string}|{type:'group';id:string}|null
 
@@ -158,12 +158,14 @@ export default function MessagesPage() {
   const activeChatRef = useRef<ActiveChat>(null)
   const convsRef = useRef<Conversation[]>([])
   const groupsRef = useRef<GroupConversation[]>([])
+  const callIdRef = useRef<string|null>(null)
 
   useEffect(()=>{myIdRef.current=myId},[myId])
   useEffect(()=>{profileRef.current=profile},[profile])
   useEffect(()=>{activeChatRef.current=activeChat},[activeChat])
   useEffect(()=>{convsRef.current=conversations},[conversations])
   useEffect(()=>{groupsRef.current=groups},[groups])
+  useEffect(()=>{callIdRef.current=callId},[callId])
 
   const activeConv = activeChat?.type==='dm' ? conversations.find(c=>c.id===activeChat.id)??null : null
   const activeGroup = activeChat?.type==='group' ? groups.find(g=>g.id===activeChat.id)??null : null
@@ -201,16 +203,25 @@ export default function MessagesPage() {
       // was leaving two listeners registered on the same channel topic and throwing
       // "cannot add postgres_changes callbacks ... after subscribe()".
       if(callCh.current){ supabase.removeChannel(callCh.current); callCh.current=null }
-      callCh.current=supabase.channel(`calls-${user.id}`)
-        .on('postgres_changes',{event:'INSERT',schema:'public',table:'call_participants',filter:`user_id=eq.${user.id}`},async(payload)=>{
-          const cp=payload.new as {call_id:string;user_id:string;status:string}
-          if(cp.status!=='invited') return
-          // maybeSingle (not single): the row can briefly not satisfy RLS the instant
-          // this event fires — single() throws a 406 in that race, maybeSingle() just
-          // returns null so we can bail out cleanly instead of erroring.
-          const {data:call,error:callErr}=await supabase.from('calls').select('*').eq('id',cp.call_id).eq('status','ringing').maybeSingle()
-          if(callErr){ console.error('[incoming call] lookup failed:',callErr.message); return }
-          if(!call||call.caller_id===user.id) return
+      // Single global channel, no call_participants table involved at all.
+      // Every authenticated client receives every INSERT/UPDATE on `calls` and
+      // decides locally whether it's relevant — this removes the two-table,
+      // two-RLS-check race that was silently dropping invites before.
+      callCh.current=supabase.channel('all-calls')
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'calls'},(payload)=>{
+          const call=payload.new as any
+          console.log('[calls] INSERT event received:',call)
+          if(call.caller_id===user.id) return // it's my own outgoing call
+          if(call.status!=='ringing') return
+          if(call.callee_id){
+            if(call.callee_id!==user.id) return // DM call meant for someone else
+          } else if(call.group_id){
+            const amMember=groupsRef.current.some(g=>g.id===call.group_id)
+            if(!amMember) return // group call for a group I'm not in
+          } else {
+            return // malformed row, ignore
+          }
+          console.log('[calls] this call is for me — ringing')
           const ic:IncomingCall={id:call.id,callerName:call.caller_name??'Someone',type:call.type,roomName:call.room_name,conversationId:call.conversation_id,groupId:call.group_id}
           setIncomingCall(ic)
           setCallName(call.caller_name??'Someone')
@@ -220,9 +231,17 @@ export default function MessagesPage() {
           setCallId(call.id)
           setCallOpen(true)
         })
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'calls'},(payload)=>{
+          const call=payload.new as any
+          // Only react if this update is about the call currently open on screen
+          if(callIdRef.current!==call.id) return
+          if(call.status==='declined'||call.status==='ended'){
+            setCallOpen(false); setCallId(null); setIncomingCall(null)
+          }
+        })
         .subscribe((status)=>{
-          if(status==='CHANNEL_ERROR') console.error('[calls channel] failed to subscribe — check that Realtime is enabled for call_participants and calls in Database > Replication')
-          if(status==='SUBSCRIBED') console.log('[calls channel] listening for incoming calls')
+          if(status==='CHANNEL_ERROR') console.error('[calls channel] failed to subscribe — check that Realtime is enabled for the calls table in Database > Replication, and that the SQL rebuild ran without error')
+          if(status==='SUBSCRIBED') console.log('[calls channel] listening for calls')
         })
       setLoading(false)
       if(targetUserId) await openConvWith(user.id,targetUserId)
@@ -329,10 +348,17 @@ export default function MessagesPage() {
   }
 
   async function loadCallHist(uid:string){
-    const {data:parts}=await supabase.from('call_participants').select('call_id').eq('user_id',uid)
-    if(!parts||!parts.length) return
-    const {data:calls}=await supabase.from('calls').select('*').in('id',parts.map(p=>p.call_id)).order('created_at',{ascending:false}).limit(20)
-    setCallHistory((calls??[]) as CallRecord[])
+    const {data:direct}=await supabase.from('calls').select('*').or(`caller_id.eq.${uid},callee_id.eq.${uid}`).order('created_at',{ascending:false}).limit(20)
+    const myGroupIds=groupsRef.current.map(g=>g.id)
+    let groupCalls:CallRecord[]=[]
+    if(myGroupIds.length){
+      const {data:gc}=await supabase.from('calls').select('*').in('group_id',myGroupIds).order('created_at',{ascending:false}).limit(20)
+      groupCalls=(gc??[]) as CallRecord[]
+    }
+    const merged=[...((direct??[]) as CallRecord[]),...groupCalls]
+    const dedup=Array.from(new Map(merged.map(c=>[c.id,c])).values())
+    dedup.sort((a,b)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime())
+    setCallHistory(dedup.slice(0,20))
   }
 
   async function loadRxns(ids:string[]){
@@ -507,10 +533,12 @@ export default function MessagesPage() {
     return Object.entries(map).map(([emoji,v])=>({emoji,...v}))
   }
 
-  // ── Calls (FIXED: uses profile.id consistently, surfaces errors, verifies participant rows landed) ──
+  // ── Calls (REBUILT: single row on `calls`, no call_participants table at all) ──
   async function startCall(type:'audio'|'video'){
     const uid = profile?.id ?? myId
     if(!uid||!activeChat||callOpen) return
+    if(activeChat.type==='dm'&&!activeConv?.otherUser){ alert("Couldn't start the call: the other person's profile hasn't loaded yet."); return }
+
     const roomName=`infowall-${activeChat.id.replace(/-/g,'').slice(0,10)}-${Date.now()}`
     const otherName=activeChat.type==='dm'?activeConv?.otherUser?.full_name??'Someone':activeGroup?.name??'Group'
 
@@ -518,6 +546,7 @@ export default function MessagesPage() {
       room_name:roomName,
       caller_id:uid,
       caller_name:profile?.full_name??null,
+      callee_id:activeChat.type==='dm'?(activeConv?.otherUser?.id??null):null,
       conversation_id:activeChat.type==='dm'?activeChat.id:null,
       group_id:activeChat.type==='group'?activeChat.id:null,
       group_name:activeChat.type==='group'?activeGroup?.name:null,
@@ -531,43 +560,7 @@ export default function MessagesPage() {
       return
     }
 
-    let participantIds:string[]=[]
-    if(activeChat.type==='dm'&&activeConv?.otherUser){
-      participantIds=[activeConv.otherUser.id]
-      const {error:pe}=await supabase.from('call_participants').insert([
-        {call_id:call.id,user_id:uid,status:'joined'},
-        {call_id:call.id,user_id:activeConv.otherUser.id,status:'invited'}
-      ])
-      if(pe){
-        console.error('Call participants error:',pe)
-        alert(`Call was created but couldn't invite ${activeConv.otherUser.full_name}: ${pe.message}. They will not be notified.`)
-        await supabase.from('calls').delete().eq('id',call.id)
-        return
-      }
-    } else if(activeChat.type==='group'&&activeGroup){
-      const others=activeGroup.members.filter(m=>m.id!==uid)
-      participantIds=others.map(m=>m.id)
-      const {error:pe}=await supabase.from('call_participants').insert([
-        {call_id:call.id,user_id:uid,status:'joined'},
-        ...others.map(m=>({call_id:call.id,user_id:m.id,status:'invited'}))
-      ])
-      if(pe){
-        console.error('Call participants error:',pe)
-        alert(`Call was created but couldn't invite the group: ${pe.message}. They will not be notified.`)
-        await supabase.from('calls').delete().eq('id',call.id)
-        return
-      }
-    }
-
-    // Verify the invite rows actually landed — this is the #1 reason calls "don't reach" the other side
-    if(participantIds.length){
-      const {data:check}=await supabase.from('call_participants').select('user_id').eq('call_id',call.id).eq('status','invited')
-      if(!check||check.length<participantIds.length){
-        console.error('Call invite verification mismatch — expected',participantIds.length,'got',check?.length)
-        alert('The call was created but the other participant(s) may not have been invited correctly. Check the call_participants INSERT policy in Supabase, and confirm Realtime is enabled for the calls and call_participants tables (Database > Replication).')
-      }
-    }
-
+    console.log('[calls] created call row',call.id,'for',otherName,'— waiting for the other side to receive the realtime INSERT event')
     setCallId(call.id);setCallRoom(roomName);setCallType(type);setCallName(otherName);setCallOut(true);setCallOpen(true)
   }
   async function handleCallEnd(){
@@ -575,16 +568,15 @@ export default function MessagesPage() {
     setCallOpen(false);setCallId(null);setIncomingCall(null);if(myId) await loadCallHist(myId)
   }
   async function handleCallAccept(){
-    const uid = profile?.id ?? myId
-    if(!incomingCall||!uid) return
-    await supabase.from('call_participants').update({status:'joined'}).eq('call_id',incomingCall.id).eq('user_id',uid)
-    await supabase.from('calls').update({status:'active'}).eq('id',incomingCall.id)
+    if(!incomingCall) return
+    const {error}=await supabase.from('calls').update({status:'active'}).eq('id',incomingCall.id)
+    if(error) console.error('[calls] failed to mark active:',error.message)
     setIncomingCall(null)
   }
   async function handleCallDecline(){
-    const uid = profile?.id ?? myId
-    if(!incomingCall||!uid) return
-    await supabase.from('call_participants').update({status:'declined'}).eq('call_id',incomingCall.id).eq('user_id',uid)
+    if(!incomingCall) return
+    const {error}=await supabase.from('calls').update({status:'declined'}).eq('id',incomingCall.id)
+    if(error) console.error('[calls] failed to mark declined:',error.message)
     setCallOpen(false);setCallId(null);setIncomingCall(null);if(myId) await loadCallHist(myId)
   }
 
