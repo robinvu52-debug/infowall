@@ -860,6 +860,36 @@ export default function MessagesPage() {
         .nu:hover{background:var(--bg-hover)}
         .nu-n{font-size:0.87rem;font-weight:600;color:var(--text-primary);display:block}
         .nu-r{font-size:0.7rem;color:var(--text-faint);text-transform:capitalize;display:block;margin-top:0.1rem}
+
+        /* ── Mobile back button (hidden on desktop) ── */
+        .hdr-back{display:none;background:none;border:none;color:var(--text-primary);font-size:1.15rem;cursor:pointer;padding:0.3rem 0.5rem 0.3rem 0;flex-shrink:0;line-height:1}
+        .hdr-back:hover{color:#4BACC6}
+
+        /* ── Responsive layout ── */
+        @media (max-width:860px){
+          .mp-shell{position:relative}
+          .sb{width:100%;position:absolute;inset:0;z-index:2;transition:transform 0.2s ease}
+          .sb.sb-chat-open{display:none}
+          .ca{width:100%;position:absolute;inset:0;z-index:1;display:none}
+          .ca.ca-chat-open{display:flex}
+          .hdr-back{display:flex;align-items:center}
+          .hb-optional .hb-label{display:none}
+          .hb-optional{padding:0.38rem 0.55rem}
+          .mr-col{max-width:84%}
+          .gi{position:fixed;inset:0;width:100%;z-index:700;border-left:none;animation:fadeIn 0.15s ease}
+          .cp-body,.fp-layout{padding-left:0.75rem;padding-right:0.75rem}
+        }
+        @media (max-width:480px){
+          .hb .hb-label{display:none}
+          .hb{padding:0.38rem 0.55rem;gap:0}
+          .hdr{padding:0.7rem 0.85rem}
+          .hdr-n{font-size:0.9rem}
+          .sb-top{padding:0.85rem 0.9rem 0.6rem}
+          .msgs{padding:1rem 0.9rem 0.5rem}
+          .inp-area{padding:0.55rem 0.9rem 0.7rem}
+          .mr-col{max-width:88%}
+          .modal{width:calc(100vw - 1.5rem)}
+        }
       `}</style>
 
       <div className="mp">
@@ -867,7 +897,7 @@ export default function MessagesPage() {
         <div className="mp-shell">
 
           {/* ── SIDEBAR ── */}
-          <div className="sb">
+          <div className={`sb${activeChat ? ' sb-chat-open' : ''}`}>
             <div className="sb-top">
               <div className="sb-tr">
                 <span className="sb-title">Messages{totalUnread>0&&<span className="sb-bdg">{totalUnread}</span>}</span>
@@ -952,7 +982,7 @@ export default function MessagesPage() {
           </div>
 
           {/* ── CHAT ── */}
-          <div className="ca"
+          <div className={`ca${activeChat ? ' ca-chat-open' : ''}`}
             onDragEnter={activeChat?e=>{e.preventDefault();dragCnt.current++;if(e.dataTransfer.types.includes('Files'))setIsDragging(true)}:undefined}
             onDragLeave={activeChat?e=>{e.preventDefault();dragCnt.current--;if(dragCnt.current===0)setIsDragging(false)}:undefined}
             onDragOver={activeChat?e=>e.preventDefault():undefined}
@@ -965,6 +995,7 @@ export default function MessagesPage() {
                 <>
                   {/* Header */}
                   <div className="hdr">
+                    <button className="hdr-back" onClick={()=>setActiveChat(null)} aria-label="Back to conversations">←</button>
                     {activeConv?(
                       <>
                         <Avatar name={activeConv.otherUser?.full_name??null} size={36}/>
@@ -974,9 +1005,9 @@ export default function MessagesPage() {
                         </div>
                         <div className="hdr-r">
                           {pinnedMsgs.length>0&&!showPinBar&&<button className="hb" onClick={()=>setShowPinBar(true)}>📌 {pinnedMsgs.length}</button>}
-                          <button className="hb call" onClick={()=>startCall('audio')}>📞 Call</button>
-                          <button className="hb vid" onClick={()=>startCall('video')}>📹 Video</button>
-                          <button className="hb" onClick={()=>navigate(`/profile/${activeConv.otherUser?.id}`)}>👤 Profile</button>
+                          <button className="hb call" onClick={()=>startCall('audio')}>📞<span className="hb-label"> Call</span></button>
+                          <button className="hb vid" onClick={()=>startCall('video')}>📹<span className="hb-label"> Video</span></button>
+                          <button className="hb hb-optional" onClick={()=>navigate(`/profile/${activeConv.otherUser?.id}`)}>👤<span className="hb-label"> Profile</span></button>
                         </div>
                       </>
                     ):activeGroup?(
@@ -992,9 +1023,9 @@ export default function MessagesPage() {
                         </div>
                         <div className="hdr-r">
                           {pinnedMsgs.length>0&&!showPinBar&&<button className="hb" onClick={()=>setShowPinBar(true)}>📌 {pinnedMsgs.length}</button>}
-                          <button className="hb call" onClick={()=>startCall('audio')}>📞 Call</button>
-                          <button className="hb vid" onClick={()=>startCall('video')}>📹 Video</button>
-                          <button className="hb" onClick={()=>setShowGroupInfo(p=>!p)}>👥 Members</button>
+                          <button className="hb call" onClick={()=>startCall('audio')}>📞<span className="hb-label"> Call</span></button>
+                          <button className="hb vid" onClick={()=>startCall('video')}>📹<span className="hb-label"> Video</span></button>
+                          <button className="hb hb-optional" onClick={()=>setShowGroupInfo(p=>!p)}>👥<span className="hb-label"> Members</span></button>
                         </div>
                       </>
                     ):null}
