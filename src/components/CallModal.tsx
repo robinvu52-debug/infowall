@@ -9,6 +9,7 @@ interface Props {
   callType: 'audio' | 'video'
   otherName: string
   isOutgoing: boolean
+  remoteStatus?: string | null
   onEnd: () => void
   onAccept: () => void
   onDecline: () => void
@@ -20,7 +21,7 @@ function initials(name: string) {
 
 export default function CallModal({
   isOpen, roomName, displayName, callType,
-  otherName, isOutgoing, onEnd, onAccept, onDecline
+  otherName, isOutgoing, remoteStatus, onEnd, onAccept, onDecline
 }: Props) {
   const [phase, setPhase] = useState<CallPhase>('ringing')
   const [elapsed, setElapsed] = useState(0)
@@ -55,6 +56,23 @@ export default function CallModal({
     }
     return () => clearInterval(timerRef.current!)
   }, [phase])
+
+  // ── React to the OTHER side's action, delivered via the `remoteStatus` prop ──
+  // Without this, a caller's screen has no way to know the callee picked up
+  // (or declined) — it just sits on "Calling…" forever. This was the bug.
+  useEffect(() => {
+    if (!isOpen || !remoteStatus) return
+    if (remoteStatus === 'active' && isOutgoing && phase === 'ringing') {
+      // The callee accepted on their end — bring the caller into the active call too
+      audioRef.current?.pause()
+      setPhase('active')
+    }
+    if ((remoteStatus === 'declined' || remoteStatus === 'missed' || remoteStatus === 'ended') && phase !== 'ended') {
+      audioRef.current?.pause()
+      setPhase('ended')
+      setTimeout(() => onEnd(), 900)
+    }
+  }, [remoteStatus, isOpen, isOutgoing, phase])
 
   function handleAccept() {
     audioRef.current?.pause()

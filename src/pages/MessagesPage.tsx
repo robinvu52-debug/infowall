@@ -140,6 +140,7 @@ export default function MessagesPage() {
   const [callName, setCallName] = useState('')
   const [callOut, setCallOut] = useState(true)
   const [callId, setCallId] = useState<string|null>(null)
+  const [callRemoteStatus, setCallRemoteStatus] = useState<string|null>(null)
   const [incomingCall, setIncomingCall] = useState<IncomingCall|null>(null)
   const [callHistory, setCallHistory] = useState<CallRecord[]>([])
   const [showCallHist, setShowCallHist] = useState(false)
@@ -229,15 +230,19 @@ export default function MessagesPage() {
           setCallRoom(call.room_name)
           setCallOut(false)
           setCallId(call.id)
+          setCallRemoteStatus(null)
           setCallOpen(true)
         })
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'calls'},(payload)=>{
           const call=payload.new as any
           // Only react if this update is about the call currently open on screen
           if(callIdRef.current!==call.id) return
-          if(call.status==='declined'||call.status==='ended'){
-            setCallOpen(false); setCallId(null); setIncomingCall(null)
-          }
+          console.log('[calls] UPDATE event received for current call — status:',call.status)
+          // Previously this only handled 'declined'/'ended' and silently ignored
+          // 'active' — which is exactly why the caller's screen never learned the
+          // callee had picked up. Now every status flows to CallModal via this
+          // state, and CallModal itself decides how to react (see remoteStatus prop).
+          setCallRemoteStatus(call.status)
         })
         .subscribe((status)=>{
           if(status==='CHANNEL_ERROR') console.error('[calls channel] failed to subscribe — check that Realtime is enabled for the calls table in Database > Replication, and that the SQL rebuild ran without error')
@@ -561,11 +566,11 @@ export default function MessagesPage() {
     }
 
     console.log('[calls] created call row',call.id,'for',otherName,'— waiting for the other side to receive the realtime INSERT event')
-    setCallId(call.id);setCallRoom(roomName);setCallType(type);setCallName(otherName);setCallOut(true);setCallOpen(true)
+    setCallId(call.id);setCallRoom(roomName);setCallType(type);setCallName(otherName);setCallOut(true);setCallRemoteStatus(null);setCallOpen(true)
   }
   async function handleCallEnd(){
     if(callId) await supabase.from('calls').update({status:'ended',ended_at:new Date().toISOString()}).eq('id',callId)
-    setCallOpen(false);setCallId(null);setIncomingCall(null);if(myId) await loadCallHist(myId)
+    setCallOpen(false);setCallId(null);setIncomingCall(null);setCallRemoteStatus(null);if(myId) await loadCallHist(myId)
   }
   async function handleCallAccept(){
     if(!incomingCall) return
@@ -577,7 +582,7 @@ export default function MessagesPage() {
     if(!incomingCall) return
     const {error}=await supabase.from('calls').update({status:'declined'}).eq('id',incomingCall.id)
     if(error) console.error('[calls] failed to mark declined:',error.message)
-    setCallOpen(false);setCallId(null);setIncomingCall(null);if(myId) await loadCallHist(myId)
+    setCallOpen(false);setCallId(null);setIncomingCall(null);setCallRemoteStatus(null);if(myId) await loadCallHist(myId)
   }
 
   // ── Render helpers ──────────────────────────────────────────
@@ -1195,6 +1200,7 @@ export default function MessagesPage() {
           callType={callType}
           otherName={callName}
           isOutgoing={callOut}
+          remoteStatus={callRemoteStatus}
           onEnd={handleCallEnd}
           onAccept={handleCallAccept}
           onDecline={handleCallDecline}
