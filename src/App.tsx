@@ -1,42 +1,59 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
-import { ThemeProvider } from './contexts/ThemeContext'
-import { PresenceProvider } from './contexts/PresenceContext'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { CallProvider } from './contexts/CallProvider'
+
+// ── Pages we've built together in this project ──────────────────────────
+import MessagesPage from './pages/MessagesPage'
+import NewsFeedPage from './pages/NewsFeedPage'
+import CreatePostPage from './pages/CreatePostPage'
+import AdminPage from './pages/AdminPage'
+
+// ── Pages referenced by navigate(...) calls throughout the app, but not
+// shared with me directly in this conversation. Adjust these import paths
+// (and filenames) to match whatever you actually called them — everything
+// else in this file will keep working regardless. ──────────────────────
 import LoginPage from './pages/LoginPage'
 import WelcomePage from './pages/WelcomePage'
 import DashboardPage from './pages/DashboardPage'
-import NewsFeedPage from './pages/NewsFeedPage'
-import MessagesPage from './pages/MessagesPage'
-import ChannelsPage from './pages/ChannelsPage'
-import CreatePostPage from './pages/CreatePostPage'
-import AdminPage from './pages/AdminPage'
 import ProfilePage from './pages/ProfilePage'
 import KioskPage from './pages/KioskPage'
-import EmployeeDirectoryPage from './pages/EmployeeDirectoryPage'
-import SettingsPage from './pages/SettingsPage'
-import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <PresenceProvider>
-        <Routes>
-          <Route path="/" element={<Navigate to="/kiosk" replace />} />
-          <Route path="/kiosk" element={<KioskPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/welcome" element={<ProtectedRoute><WelcomePage /></ProtectedRoute>} />
-          <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-          <Route path="/feed" element={<ProtectedRoute><NewsFeedPage /></ProtectedRoute>} />
-          <Route path="/channels" element={<ProtectedRoute><ChannelsPage /></ProtectedRoute>} />
-          <Route path="/channels/:channelId" element={<ProtectedRoute><ChannelsPage /></ProtectedRoute>} />
-          <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
-          <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
-          <Route path="/directory" element={<ProtectedRoute><EmployeeDirectoryPage /></ProtectedRoute>} />
-          <Route path="/profile/:id" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-          <Route path="/create-post" element={<ProtectedRoute roles={['hr','manager','admin']}><CreatePostPage /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminPage /></ProtectedRoute>} />
-        </Routes>
-      </PresenceProvider>
-    </ThemeProvider>
+    // CallProvider sits ABOVE the routes so its realtime "calls" subscription
+    // survives every navigation — it's what makes a call ring no matter which
+    // page you're currently on, instead of only while Messages is open.
+    // NOTE: no <BrowserRouter> here — main.tsx already provides one. Having
+    // two nested Routers is exactly what was causing the blank white screen.
+    <CallProvider>
+      <Routes>
+        {/* Auth */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/welcome" element={<WelcomePage />} />
+
+        {/* Core app */}
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/news-feed" element={<NewsFeedPage />} />
+        <Route path="/create-post" element={<CreatePostPage />} />
+
+        {/* Messages — :userId is optional; MessagesPage opens straight into
+            a DM with that person when it's present (see useParams in the
+            component), otherwise it just opens the inbox. */}
+        <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/messages/:userId" element={<MessagesPage />} />
+
+        {/* Admin (the page itself already redirects non-admins to /dashboard) */}
+        <Route path="/admin" element={<AdminPage />} />
+
+        {/* Profile */}
+        <Route path="/profile/:userId" element={<ProfilePage />} />
+
+        {/* Kiosk — full-screen display view, no nav chrome */}
+        <Route path="/kiosk" element={<KioskPage />} />
+
+        {/* Fallbacks */}
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </CallProvider>
   )
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
-import CallModal from '../components/CallModal'
+import { useCall } from '../contexts/CallProvider'
 
 interface Profile { id:string; full_name:string|null; role:string; department_id:string|null }
 interface Conversation { id:string; user1_id:string; user2_id:string; created_at:string; otherUser:Profile|null; lastMessage:DmMessage|null; unreadCount:number }
@@ -11,7 +11,6 @@ interface GroupConversation { id:string; name:string; created_by:string|null; cr
 interface GroupMessage { id:string; group_id:string; sender_id:string; content:string; created_at:string; is_pinned?:boolean; attachment_url?:string|null; attachment_name?:string|null; attachment_type?:string|null; sender?:Profile|null }
 interface MessageReaction { id:string; message_id:string; user_id:string; emoji:string }
 interface CallRecord { id:string; room_name:string; caller_id:string; caller_name:string|null; callee_id:string|null; type:'audio'|'video'; status:string; created_at:string; ended_at:string|null; conversation_id:string|null; group_id:string|null; group_name:string|null }
-interface IncomingCall { id:string; callerName:string; type:'audio'|'video'; roomName:string; conversationId?:string; groupId?:string }
 type ActiveChat = {type:'dm';id:string}|{type:'group';id:string}|null
 
 const QUICK_EMOJIS = ['👍','❤️','😂','😮','😢','🎉','🔥','✅']
@@ -93,6 +92,7 @@ function GroupAvatar({members,size=36}:{members:Profile[];size?:number}) {
 export default function MessagesPage() {
   const navigate = useNavigate()
   const {userId:targetUserId} = useParams<{userId?:string}>()
+  const { startCall } = useCall()
 
   const [profile, setProfile] = useState<Profile|null>(null)
   const [myId, setMyId] = useState<string>('')
@@ -134,14 +134,6 @@ export default function MessagesPage() {
   const [uploadErr, setUploadErr] = useState<string|null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const dragCnt = useRef(0)
-  const [callOpen, setCallOpen] = useState(false)
-  const [callRoom, setCallRoom] = useState('')
-  const [callType, setCallType] = useState<'audio'|'video'>('audio')
-  const [callName, setCallName] = useState('')
-  const [callOut, setCallOut] = useState(true)
-  const [callId, setCallId] = useState<string|null>(null)
-  const [callRemoteStatus, setCallRemoteStatus] = useState<string|null>(null)
-  const [incomingCall, setIncomingCall] = useState<IncomingCall|null>(null)
   const [callHistory, setCallHistory] = useState<CallRecord[]>([])
   const [showCallHist, setShowCallHist] = useState(false)
 
@@ -152,21 +144,18 @@ export default function MessagesPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const globalCh = useRef<ReturnType<typeof supabase.channel>|null>(null)
   const typingCh = useRef<ReturnType<typeof supabase.channel>|null>(null)
-  const callCh = useRef<ReturnType<typeof supabase.channel>|null>(null)
   const typingTimer = useRef<ReturnType<typeof setTimeout>|null>(null)
   const myIdRef = useRef<string>('')
   const profileRef = useRef<Profile|null>(null)
   const activeChatRef = useRef<ActiveChat>(null)
   const convsRef = useRef<Conversation[]>([])
   const groupsRef = useRef<GroupConversation[]>([])
-  const callIdRef = useRef<string|null>(null)
 
   useEffect(()=>{myIdRef.current=myId},[myId])
   useEffect(()=>{profileRef.current=profile},[profile])
   useEffect(()=>{activeChatRef.current=activeChat},[activeChat])
   useEffect(()=>{convsRef.current=conversations},[conversations])
   useEffect(()=>{groupsRef.current=groups},[groups])
-  useEffect(()=>{callIdRef.current=callId},[callId])
 
   const activeConv = activeChat?.type==='dm' ? conversations.find(c=>c.id===activeChat.id)??null : null
   const activeGroup = activeChat?.type==='group' ? groups.find(g=>g.id===activeChat.id)??null : null
@@ -200,59 +189,22 @@ export default function MessagesPage() {
       const {data:ps}=await supabase.from('profiles').select('*').order('full_name')
       setAllProfiles((ps??[]).filter((x:Profile)=>x.id!==user.id))
       await Promise.all([loadConvs(user.id),loadGroups(user.id),loadCallHist(user.id)])
-      // Guard against React StrictMode double-invoking this effect in dev, which
-      // was leaving two listeners registered on the same channel topic and throwing
-      // "cannot add postgres_changes callbacks ... after subscribe()".
-      if(callCh.current){ supabase.removeChannel(callCh.current); callCh.current=null }
-      // Single global channel, no call_participants table involved at all.
-      // Every authenticated client receives every INSERT/UPDATE on `calls` and
-      // decides locally whether it's relevant — this removes the two-table,
-      // two-RLS-check race that was silently dropping invites before.
-      callCh.current=supabase.channel('all-calls')
-        .on('postgres_changes',{event:'INSERT',schema:'public',table:'calls'},(payload)=>{
-          const call=payload.new as any
-          console.log('[calls] INSERT event received:',call)
-          if(call.caller_id===user.id) return // it's my own outgoing call
-          if(call.status!=='ringing') return
-          if(call.callee_id){
-            if(call.callee_id!==user.id) return // DM call meant for someone else
-          } else if(call.group_id){
-            const amMember=groupsRef.current.some(g=>g.id===call.group_id)
-            if(!amMember) return // group call for a group I'm not in
-          } else {
-            return // malformed row, ignore
-          }
-          console.log('[calls] this call is for me — ringing')
-          const ic:IncomingCall={id:call.id,callerName:call.caller_name??'Someone',type:call.type,roomName:call.room_name,conversationId:call.conversation_id,groupId:call.group_id}
-          setIncomingCall(ic)
-          setCallName(call.caller_name??'Someone')
-          setCallType(call.type)
-          setCallRoom(call.room_name)
-          setCallOut(false)
-          setCallId(call.id)
-          setCallRemoteStatus(null)
-          setCallOpen(true)
-        })
-        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'calls'},(payload)=>{
-          const call=payload.new as any
-          // Only react if this update is about the call currently open on screen
-          if(callIdRef.current!==call.id) return
-          console.log('[calls] UPDATE event received for current call — status:',call.status)
-          // Previously this only handled 'declined'/'ended' and silently ignored
-          // 'active' — which is exactly why the caller's screen never learned the
-          // callee had picked up. Now every status flows to CallModal via this
-          // state, and CallModal itself decides how to react (see remoteStatus prop).
-          setCallRemoteStatus(call.status)
-        })
-        .subscribe((status)=>{
-          if(status==='CHANNEL_ERROR') console.error('[calls channel] failed to subscribe — check that Realtime is enabled for the calls table in Database > Replication, and that the SQL rebuild ran without error')
-          if(status==='SUBSCRIBED') console.log('[calls channel] listening for calls')
-        })
+      // Note: listening for incoming calls is handled globally by <CallProvider>,
+      // mounted once at the app root, so calls ring regardless of which page
+      // is open — not just while this Messages page happens to be mounted.
       setLoading(false)
       if(targetUserId) await openConvWith(user.id,targetUserId)
     }
     boot()
-    return ()=>{supabase.removeAllChannels();if(typingTimer.current)clearTimeout(typingTimer.current)}
+    return ()=>{
+      // Only remove channels this page itself created (msg-global, typing:*).
+      // supabase.removeAllChannels() would also tear down CallProvider's
+      // app-wide call listener the moment this page unmounts — exactly the
+      // bug this change fixes — so it must not be called here anymore.
+      if(globalCh.current) supabase.removeChannel(globalCh.current)
+      if(typingCh.current) supabase.removeChannel(typingCh.current)
+      if(typingTimer.current)clearTimeout(typingTimer.current)
+    }
   },[navigate,targetUserId])
 
   // ── Global realtime ─────────────────────────────────────────
@@ -538,52 +490,9 @@ export default function MessagesPage() {
     return Object.entries(map).map(([emoji,v])=>({emoji,...v}))
   }
 
-  // ── Calls (REBUILT: single row on `calls`, no call_participants table at all) ──
-  async function startCall(type:'audio'|'video'){
-    const uid = profile?.id ?? myId
-    if(!uid||!activeChat||callOpen) return
-    if(activeChat.type==='dm'&&!activeConv?.otherUser){ alert("Couldn't start the call: the other person's profile hasn't loaded yet."); return }
-
-    const roomName=`infowall-${activeChat.id.replace(/-/g,'').slice(0,10)}-${Date.now()}`
-    const otherName=activeChat.type==='dm'?activeConv?.otherUser?.full_name??'Someone':activeGroup?.name??'Group'
-
-    const {data:call,error}=await supabase.from('calls').insert({
-      room_name:roomName,
-      caller_id:uid,
-      caller_name:profile?.full_name??null,
-      callee_id:activeChat.type==='dm'?(activeConv?.otherUser?.id??null):null,
-      conversation_id:activeChat.type==='dm'?activeChat.id:null,
-      group_id:activeChat.type==='group'?activeChat.id:null,
-      group_name:activeChat.type==='group'?activeGroup?.name:null,
-      type,
-      status:'ringing'
-    }).select().single()
-
-    if(error||!call){
-      console.error('Call creation error:',error)
-      alert(`Couldn't start the call: ${error?.message ?? 'insert failed'}`)
-      return
-    }
-
-    console.log('[calls] created call row',call.id,'for',otherName,'— waiting for the other side to receive the realtime INSERT event')
-    setCallId(call.id);setCallRoom(roomName);setCallType(type);setCallName(otherName);setCallOut(true);setCallRemoteStatus(null);setCallOpen(true)
-  }
-  async function handleCallEnd(){
-    if(callId) await supabase.from('calls').update({status:'ended',ended_at:new Date().toISOString()}).eq('id',callId)
-    setCallOpen(false);setCallId(null);setIncomingCall(null);setCallRemoteStatus(null);if(myId) await loadCallHist(myId)
-  }
-  async function handleCallAccept(){
-    if(!incomingCall) return
-    const {error}=await supabase.from('calls').update({status:'active'}).eq('id',incomingCall.id)
-    if(error) console.error('[calls] failed to mark active:',error.message)
-    setIncomingCall(null)
-  }
-  async function handleCallDecline(){
-    if(!incomingCall) return
-    const {error}=await supabase.from('calls').update({status:'declined'}).eq('id',incomingCall.id)
-    if(error) console.error('[calls] failed to mark declined:',error.message)
-    setCallOpen(false);setCallId(null);setIncomingCall(null);setCallRemoteStatus(null);if(myId) await loadCallHist(myId)
-  }
+  // Note: starting/accepting/declining/ending calls is now owned by
+  // <CallProvider> (see startCall from useCall() above) so the same call
+  // state and modal work correctly no matter which page is mounted.
 
   // ── Render helpers ──────────────────────────────────────────
   function renderContent(content:string){
@@ -953,7 +862,7 @@ export default function MessagesPage() {
                 })}
             </div>
 
-            <button className="cht" onClick={()=>setShowCallHist(p=>!p)}>
+            <button className="cht" onClick={()=>{ setShowCallHist(p=>{ const next=!p; if(next && myId) loadCallHist(myId); return next }) }}>
               📞 Call history ({callHistory.length})
               <span style={{marginLeft:'auto'}}>{showCallHist?'▲':'▼'}</span>
             </button>
@@ -1005,8 +914,8 @@ export default function MessagesPage() {
                         </div>
                         <div className="hdr-r">
                           {pinnedMsgs.length>0&&!showPinBar&&<button className="hb" onClick={()=>setShowPinBar(true)}>📌 {pinnedMsgs.length}</button>}
-                          <button className="hb call" onClick={()=>startCall('audio')}>📞<span className="hb-label"> Call</span></button>
-                          <button className="hb vid" onClick={()=>startCall('video')}>📹<span className="hb-label"> Video</span></button>
+                          <button className="hb call" onClick={()=>startCall({type:'audio', calleeId:activeConv.otherUser?.id, conversationId:activeConv.id, otherName:activeConv.otherUser?.full_name??'Someone'})}>📞<span className="hb-label"> Call</span></button>
+                          <button className="hb vid" onClick={()=>startCall({type:'video', calleeId:activeConv.otherUser?.id, conversationId:activeConv.id, otherName:activeConv.otherUser?.full_name??'Someone'})}>📹<span className="hb-label"> Video</span></button>
                           <button className="hb hb-optional" onClick={()=>navigate(`/profile/${activeConv.otherUser?.id}`)}>👤<span className="hb-label"> Profile</span></button>
                         </div>
                       </>
@@ -1023,8 +932,8 @@ export default function MessagesPage() {
                         </div>
                         <div className="hdr-r">
                           {pinnedMsgs.length>0&&!showPinBar&&<button className="hb" onClick={()=>setShowPinBar(true)}>📌 {pinnedMsgs.length}</button>}
-                          <button className="hb call" onClick={()=>startCall('audio')}>📞<span className="hb-label"> Call</span></button>
-                          <button className="hb vid" onClick={()=>startCall('video')}>📹<span className="hb-label"> Video</span></button>
+                          <button className="hb call" onClick={()=>startCall({type:'audio', groupId:activeGroup.id, groupName:activeGroup.name, otherName:activeGroup.name})}>📞<span className="hb-label"> Call</span></button>
+                          <button className="hb vid" onClick={()=>startCall({type:'video', groupId:activeGroup.id, groupName:activeGroup.name, otherName:activeGroup.name})}>📹<span className="hb-label"> Video</span></button>
                           <button className="hb hb-optional" onClick={()=>setShowGroupInfo(p=>!p)}>👥<span className="hb-label"> Members</span></button>
                         </div>
                       </>
@@ -1222,20 +1131,7 @@ export default function MessagesPage() {
             </div>
           </div>
         )}
-
-        {/* Call modal */}
-        <CallModal
-          isOpen={callOpen}
-          roomName={callRoom}
-          displayName={profile?.full_name??'Me'}
-          callType={callType}
-          otherName={callName}
-          isOutgoing={callOut}
-          remoteStatus={callRemoteStatus}
-          onEnd={handleCallEnd}
-          onAccept={handleCallAccept}
-          onDecline={handleCallDecline}
-        />
+        {/* Call modal is rendered globally by <CallProvider> at the app root — not here. */}
       </div>
     </>
   )
